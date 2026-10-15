@@ -154,6 +154,29 @@ struct ItemEditTests {
         #expect(roundTripped?["platforms"] as? String == "macOS")
     }
 
+    @Test func editorDropsEchoedNullsButKeepsValues() throws {
+        // The shape Graph exports produce: nulls everywhere, templateReference
+        // of nothing but nulls, nested values that must survive.
+        let export = """
+        {"name":"P","platforms":"macOS","technologies":"mdm","settings":[{"id":"0","settingInstance":{
+        "@odata.type":"#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        "auditRuleInformation":null,"settingInstanceTemplateReference":null,
+        "settingDefinitionId":"com.apple.x","choiceSettingValue":{"settingValueTemplateReference":null,
+        "value":"com.apple.x_false","children":[]}}}],
+        "templateReference":{"templateId":"","templateFamily":"none","templateDisplayName":null,"templateDisplayVersion":null}}
+        """
+        let text = try #require(ItemEditorView.editableText(from: Data(export.utf8), pathExtension: "json"))
+        #expect(!text.contains("null"))
+        #expect(!text.contains("auditRuleInformation"))
+        #expect(!text.contains("templateDisplayName"))
+        #expect(text.contains("\"value\" : \"com.apple.x_false\""))
+        #expect(text.contains("\"children\" : [")) // empty arrays stay
+        #expect(text.contains("\"templateFamily\" : \"none\"")) // non-null siblings stay
+        // Classifies as the same type it came from.
+        let item = makeItem("sc/p.json", type: .settingsCatalog)
+        #expect(ItemEditValidation.validate(text: text, for: item) == .valid(Data(text.utf8)))
+    }
+
     @Test func binaryMobileconfigBecomesEditableXML() throws {
         let plist: [String: Any] = ["PayloadDisplayName": "Dock", "PayloadType": "Configuration"]
         let binary = try PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0)
