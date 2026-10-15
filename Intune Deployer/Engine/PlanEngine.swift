@@ -114,8 +114,8 @@ nonisolated enum PlanEngine {
                 )
             }
 
-            // Resolve the assignment intent.
-            let intent = input.profile.assignments[item.id] ?? AssignmentIntent()
+            // Resolve the assignment intent (explicit, else per-type default).
+            let intent = input.profile.effectiveAssignment(for: item.id, type: item.type)
             let assignment = resolveAssignment(
                 intent: intent,
                 itemName: built.displayName,

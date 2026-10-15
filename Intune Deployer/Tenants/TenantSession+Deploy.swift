@@ -168,7 +168,8 @@ extension TenantSession {
     private func referencedGroupNames(profile: TenantProfile, items: [InferredItem]) -> Set<String> {
         var names = Set<String>()
         for item in items {
-            if let intent = profile.assignments[item.id], intent.mode == .group {
+            let intent = profile.effectiveAssignment(for: item.id, type: item.type)
+            if intent.mode == .group {
                 let name = intent.groupName.trimmingCharacters(in: .whitespaces)
                 if !name.isEmpty { names.insert(name) }
             }

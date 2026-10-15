@@ -25,7 +25,7 @@ struct ItemDetailView: View {
                     LabeledContent("Attribute Type", value: attributeType.rawValue)
                 }
                 if let profile = tenantStore.selectedProfile {
-                    AssignmentEditorView(item: item, profile: profile)
+                    AssignmentEditorView(items: [item], profile: profile)
                 }
                 if let source = itemSource, source.isGitHub {
                     attributionSection(source)

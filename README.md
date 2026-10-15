@@ -143,7 +143,13 @@ time; Apply is blocked while any selected item has an unresolved token.
 
 Per item and per tenant: leave unchanged, all devices, all users, or a static Entra group
 resolved by display name (optionally created on Apply when enabled in the
-profile). Assignments can carry an include/exclude assignment filter; a
+profile). The tenant profile can also set a **default assignment per item
+type** (e.g. all shell scripts → all devices); items without their own
+assignment follow it, and an item's editor can override it or switch back to
+**Type default**. Select several items (⇧/⌘-click, ⌘A) to edit their
+assignments in one place or use the right-click menu; the list header
+checkbox and the **Selection** toolbar menu include or exclude everything
+currently shown. Assignments can carry an include/exclude assignment filter; a
 built-in macOS ADE filter template is available:
 `(device.enrollmentProfileName -eq "{{EnrollmentProfileName}}")`.
 The app warns when a dynamic device group is used — delivery of

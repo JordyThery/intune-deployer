@@ -1,14 +1,17 @@
 import SwiftUI
 
 /// Content column: inferred items for the selected sources, with selection
-/// checkboxes, search, type filters and a skipped-files section.
+/// checkboxes, search, type filters and a skipped-files section. Supports
+/// multi-selection (⇧/⌘-click, ⌘A) for bulk include/exclude and assignment.
 struct ItemListView: View {
     @Environment(SourceStore.self) private var store
     @Environment(TenantStore.self) private var tenantStore
     let selectedSourceIDs: Set<UUID>
-    @Binding var selectedItemID: String?
+    @Binding var selectedItemIDs: Set<String>
     @Binding var searchText: String
     @Binding var typeFilter: ItemType?
+
+    @FocusState private var listFocused: Bool
 
     private var items: [InferredItem] {
         var items = store.items(for: selectedSourceIDs)
@@ -28,8 +31,13 @@ struct ItemListView: View {
         store.skippedFiles(for: selectedSourceIDs)
     }
 
+    private var includedShownCount: Int {
+        guard let profile = tenantStore.selectedProfile else { return 0 }
+        return items.count { profile.selectedItemIDs.contains($0.id) }
+    }
+
     var body: some View {
-        List(selection: $selectedItemID) {
+        List(selection: $selectedItemIDs) {
             Section {
                 ForEach(items) { item in
                     ItemRow(
@@ -41,8 +49,7 @@ struct ItemListView: View {
                     .tag(item.id)
                 }
             } header: {
-                Text("Items")
-                    .badge(items.count)
+                itemsHeader
             }
 
             if !skipped.isEmpty {
@@ -62,6 +69,11 @@ struct ItemListView: View {
                         .badge(skipped.count)
                 }
             }
+        }
+        .focused($listFocused)
+        .onAppear { listFocused = true }
+        .contextMenu(forSelectionType: String.self) { ids in
+            rowContextMenu(ids: ids)
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search items")
         .overlay {
@@ -84,6 +96,18 @@ struct ItemListView: View {
         .toolbar {
             ToolbarItem {
                 Menu {
+                    Button("Include All Shown") { setIncluded(true, itemIDs: items.map(\.id)) }
+                        .disabled(includedShownCount == items.count)
+                    Button("Exclude All Shown") { setIncluded(false, itemIDs: items.map(\.id)) }
+                        .disabled(includedShownCount == 0)
+                } label: {
+                    Label("Selection", systemImage: "checklist")
+                }
+                .help("Include or exclude every item currently shown (respects search and type filter)")
+                .disabled(tenantStore.selectedProfile == nil || items.isEmpty)
+            }
+            ToolbarItem {
+                Menu {
                     Picker("Type", selection: $typeFilter) {
                         Text("All Types").tag(ItemType?.none)
                         Divider()
@@ -101,6 +125,82 @@ struct ItemListView: View {
                 .help("Filter items by type")
             }
         }
+    }
+
+    // MARK: - Header
+
+    /// Mixed-state checkbox toggling every shown item, plus a deploy count.
+    private var itemsHeader: some View {
+        HStack(spacing: 6) {
+            if tenantStore.selectedProfile != nil, !items.isEmpty {
+                let allIncluded = includedShownCount == items.count
+                Button {
+                    setIncluded(!allIncluded, itemIDs: items.map(\.id))
+                } label: {
+                    Image(systemName: allIncluded
+                        ? "checkmark.square.fill"
+                        : includedShownCount == 0 ? "square" : "minus.square.fill")
+                }
+                .buttonStyle(.borderless)
+                .help(allIncluded ? "Exclude all shown items" : "Include all shown items")
+                .accessibilityLabel(allIncluded ? "Exclude all shown items" : "Include all shown items")
+            }
+            Text("Items")
+            Spacer()
+            if tenantStore.selectedProfile != nil {
+                Text("\(includedShownCount) of \(items.count) selected")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(items.count)")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Context menu
+
+    @ViewBuilder
+    private func rowContextMenu(ids: Set<String>) -> some View {
+        let hasProfile = tenantStore.selectedProfile != nil
+        Button("Include for Deployment") { setIncluded(true, itemIDs: Array(ids)) }
+            .disabled(!hasProfile || ids.isEmpty)
+        Button("Exclude from Deployment") { setIncluded(false, itemIDs: Array(ids)) }
+            .disabled(!hasProfile || ids.isEmpty)
+        Divider()
+        Menu("Assign To") {
+            Button("Type Default") { setAssignmentEntries(ids: ids, intent: nil) }
+            Divider()
+            ForEach(AssignmentIntent.Mode.allCases.filter { $0 != .group }, id: \.self) { mode in
+                Button(mode.displayName) {
+                    var intent = AssignmentIntent()
+                    intent.mode = mode
+                    setAssignmentEntries(ids: ids, intent: intent)
+                }
+            }
+            // Groups and filters need names — use the assignment editor.
+        }
+        .disabled(!hasProfile || ids.isEmpty)
+    }
+
+    // MARK: - Bulk edits
+
+    private func setIncluded(_ included: Bool, itemIDs: [String]) {
+        guard var profile = tenantStore.selectedProfile else { return }
+        if included {
+            profile.selectedItemIDs.formUnion(itemIDs)
+        } else {
+            profile.selectedItemIDs.subtract(itemIDs)
+        }
+        tenantStore.update(profile)
+    }
+
+    /// nil removes the per-item entries so the type default applies again.
+    private func setAssignmentEntries(ids: Set<String>, intent: AssignmentIntent?) {
+        guard var profile = tenantStore.selectedProfile else { return }
+        for id in ids {
+            profile.assignments[id] = intent
+        }
+        tenantStore.update(profile)
     }
 
     private func sourceName(for item: InferredItem) -> String {

@@ -390,6 +390,71 @@ struct PlanEngineTests {
         #expect(!plan.hasErrors)
     }
 
+    @Test func typeDefaultAssignmentAppliesWhenItemHasNoIntent() {
+        var defaultIntent = AssignmentIntent()
+        defaultIntent.mode = .allDevices
+        let (base, _) = scriptInput()
+        var profile = base.profile
+        profile.defaultAssignments = [.shellScript: defaultIntent]
+
+        let plan = PlanEngine.makePlan(input: PlanInput(
+            selectedItems: base.selectedItems,
+            profile: profile,
+            existingObjects: [:],
+            groups: [:],
+            knownSettingDefinitionIDs: nil
+        ))
+        #expect(plan.actions.first?.assignment?.target == .allDevices)
+        #expect(!plan.hasErrors)
+    }
+
+    @Test func explicitIntentOverridesTypeDefault() {
+        var defaultIntent = AssignmentIntent()
+        defaultIntent.mode = .allDevices
+        let (base, item) = scriptInput()
+        var profile = base.profile
+        profile.defaultAssignments = [.shellScript: defaultIntent]
+        // Explicit "leave unchanged" beats the type default.
+        profile.assignments = [item.id: AssignmentIntent()]
+
+        let plan = PlanEngine.makePlan(input: PlanInput(
+            selectedItems: base.selectedItems,
+            profile: profile,
+            existingObjects: [:],
+            groups: [:],
+            knownSettingDefinitionIDs: nil
+        ))
+        #expect(plan.actions.first?.assignment == nil)
+    }
+
+    @Test func assignmentFiltersIgnoreTypeDefaults() {
+        var defaultIntent = AssignmentIntent()
+        defaultIntent.mode = .allDevices
+        let profile = TenantProfile(displayName: "T", tenantID: "t", defaultAssignments: [.assignmentFilter: defaultIntent])
+        let effective = profile.effectiveAssignment(for: "abc", type: .assignmentFilter)
+        #expect(effective.mode == AssignmentIntent.Mode.none)
+    }
+
+    @Test func defaultAssignmentsSurviveProfileEncoding() throws {
+        var defaultIntent = AssignmentIntent()
+        defaultIntent.mode = .group
+        defaultIntent.groupName = "macOS Pilots"
+        defaultIntent.filterName = "ADE"
+        let profile = TenantProfile(
+            displayName: "T", clientID: "c", tenantID: "t",
+            defaultAssignments: [.settingsCatalog: defaultIntent]
+        )
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(TenantProfile.self, from: data)
+        #expect(decoded.defaultAssignments == [.settingsCatalog: defaultIntent])
+
+        // Profiles exported by earlier builds (no defaultAssignments) load.
+        let legacy = Data(#"{"id":"11111111-2222-3333-4444-555555555555","displayName":"Old","tenantID":"t"}"#.utf8)
+        let old = try JSONDecoder().decode(TenantProfile.self, from: legacy)
+        #expect(old.defaultAssignments.isEmpty)
+        #expect(old.effectiveAssignment(for: "x", type: .shellScript).mode == AssignmentIntent.Mode.none)
+    }
+
     @Test func builtInFilterTemplateNeedsItsVariable() {
         var intent = AssignmentIntent()
         intent.mode = .allDevices

@@ -8,7 +8,7 @@ struct ContentView: View {
     @Environment(UpdateChecker.self) private var updates
 
     @State private var sidebarSelection: Set<SidebarSelection> = []
-    @State private var selectedItemID: String?
+    @State private var selectedItemIDs: Set<String> = []
     @State private var searchText = ""
     @State private var typeFilter: ItemType?
     @State private var authErrorMessage: String?
@@ -25,7 +25,7 @@ struct ContentView: View {
             } else {
                 ItemListView(
                     selectedSourceIDs: selectedSourceIDs,
-                    selectedItemID: $selectedItemID,
+                    selectedItemIDs: $selectedItemIDs,
                     searchText: $searchText,
                     typeFilter: $typeFilter
                 )
@@ -34,7 +34,9 @@ struct ContentView: View {
         } detail: {
             if let profile = selectedSidebarTenant {
                 TenantDetailView(profile: profile)
-            } else if let item = selectedItem {
+            } else if selectedItems.count > 1 {
+                MultiItemDetailView(items: selectedItems)
+            } else if let item = selectedItems.first {
                 ItemDetailView(item: item)
             } else {
                 ContentUnavailableView(
@@ -230,9 +232,10 @@ struct ContentView: View {
         return tenantStore.profiles.first { tenantIDs.contains($0.id) }
     }
 
-    private var selectedItem: InferredItem? {
-        guard let selectedItemID else { return nil }
-        return store.items(for: selectedSourceIDs).first { $0.id == selectedItemID }
+    /// Highlighted items in list order (highlight ≠ deploy checkbox).
+    private var selectedItems: [InferredItem] {
+        guard !selectedItemIDs.isEmpty else { return [] }
+        return store.items(for: selectedSourceIDs).filter { selectedItemIDs.contains($0.id) }
     }
 }
 

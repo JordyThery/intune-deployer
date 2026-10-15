@@ -21,6 +21,9 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
     var selectedItemIDs: Set<String>
     /// Per-item assignment intents, keyed by item ID.
     var assignments: [String: AssignmentIntent]
+    /// Default assignment intents per item type, used for items without their
+    /// own intent. Assignment filters cannot be assigned and have no default.
+    var defaultAssignments: [ItemType: AssignmentIntent]
     /// Whether Apply may create missing static Entra groups
     /// (requires consenting to Group.ReadWrite.All).
     var allowGroupCreation: Bool
@@ -36,6 +39,7 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         variables: [String: String] = [:],
         selectedItemIDs: Set<String> = [],
         assignments: [String: AssignmentIntent] = [:],
+        defaultAssignments: [ItemType: AssignmentIntent] = [:],
         allowGroupCreation: Bool = false,
         accountIdentifier: String? = nil
     ) {
@@ -47,6 +51,7 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         self.variables = variables
         self.selectedItemIDs = selectedItemIDs
         self.assignments = assignments
+        self.defaultAssignments = defaultAssignments
         self.allowGroupCreation = allowGroupCreation
         self.accountIdentifier = accountIdentifier
     }
@@ -63,11 +68,21 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         variables = try container.decodeIfPresent([String: String].self, forKey: .variables) ?? [:]
         selectedItemIDs = try container.decodeIfPresent(Set<String>.self, forKey: .selectedItemIDs) ?? []
         assignments = try container.decodeIfPresent([String: AssignmentIntent].self, forKey: .assignments) ?? [:]
+        defaultAssignments = try container.decodeIfPresent([ItemType: AssignmentIntent].self, forKey: .defaultAssignments) ?? [:]
         allowGroupCreation = try container.decodeIfPresent(Bool.self, forKey: .allowGroupCreation) ?? false
         accountIdentifier = try container.decodeIfPresent(String.self, forKey: .accountIdentifier)
     }
 
     var hasValidClientID: Bool {
         UUID(uuidString: clientID.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    }
+
+    /// The intent used at plan time: an explicit per-item intent wins, then
+    /// the per-type default, then "leave unchanged". A stored intent — even
+    /// "leave unchanged" — overrides the type default.
+    func effectiveAssignment(for itemID: String, type: ItemType) -> AssignmentIntent {
+        if let explicit = assignments[itemID] { return explicit }
+        guard type != .assignmentFilter else { return AssignmentIntent() }
+        return defaultAssignments[type] ?? AssignmentIntent()
     }
 }

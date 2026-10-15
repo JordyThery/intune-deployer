@@ -31,6 +31,18 @@ nonisolated struct AssignmentIntent: Codable, Hashable, Sendable {
     var filterName: String = ""
     var filterMode: FilterMode = .include
 
+    /// One-line description for menus and the "type default" hint.
+    var summary: String {
+        var text = switch mode {
+        case .none: Mode.none.displayName
+        case .allDevices, .allUsers: mode.displayName
+        case .group: groupName.isEmpty ? "group (no name set)" : "group “\(groupName)”"
+        }
+        if mode != .none, !filterName.isEmpty {
+            text += filterMode == .include ? ", filter “\(filterName)”" : ", excluding filter “\(filterName)”"
+        }
+        return text
+    }
 }
 
 /// The built-in macOS ADE enrollment filter template the app can create when a

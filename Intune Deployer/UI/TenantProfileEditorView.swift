@@ -42,6 +42,18 @@ struct TenantProfileEditorView: View {
                 }
 
                 Section {
+                    ForEach(Self.defaultableTypes, id: \.self) { type in
+                        defaultAssignmentRow(for: type)
+                    }
+                } header: {
+                    Text("Default Assignments")
+                } footer: {
+                    Text("Applied at plan time to selected items that have no assignment of their own. An item's assignment editor can override a default or switch back to it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
                     ForEach(profile.variables.keys.sorted(), id: \.self) { key in
                         HStack {
                             Text("{{\(key)}}")
@@ -105,13 +117,77 @@ struct TenantProfileEditorView: View {
             }
             .padding()
         }
-        .frame(width: 520, height: 460)
+        .frame(width: 520, height: 560)
     }
 
     private func variableBinding(for key: String) -> Binding<String> {
         Binding(
             get: { profile.variables[key] ?? "" },
             set: { profile.variables[key] = $0 }
+        )
+    }
+
+    // MARK: - Default assignments
+
+    /// Assignment filters cannot themselves be assigned.
+    private static let defaultableTypes = ItemType.allCases.filter { $0 != .assignmentFilter }
+
+    @ViewBuilder
+    private func defaultAssignmentRow(for type: ItemType) -> some View {
+        let intent = profile.defaultAssignments[type]
+        VStack(alignment: .leading, spacing: 6) {
+            Picker(selection: defaultModeBinding(for: type)) {
+                Text("No default — leave unchanged").tag(AssignmentIntent.Mode?.none)
+                Divider()
+                ForEach(AssignmentIntent.Mode.allCases.filter { $0 != .none }, id: \.self) { mode in
+                    Text(mode.displayName).tag(AssignmentIntent.Mode?.some(mode))
+                }
+            } label: {
+                Label(type.displayName, systemImage: type.symbolName)
+            }
+            if let intent {
+                if intent.mode == .group {
+                    TextField("Group name", text: defaultBinding(for: type, \.groupName),
+                              prompt: Text("Static Entra security group"))
+                }
+                HStack {
+                    TextField("Filter name", text: defaultBinding(for: type, \.filterName),
+                              prompt: Text("Assignment filter (optional)"))
+                    Picker("Filter mode", selection: defaultBinding(for: type, \.filterMode)) {
+                        Text("Include").tag(AssignmentIntent.FilterMode.include)
+                        Text("Exclude").tag(AssignmentIntent.FilterMode.exclude)
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+        }
+    }
+
+    /// nil = no default stored for the type.
+    private func defaultModeBinding(for type: ItemType) -> Binding<AssignmentIntent.Mode?> {
+        Binding(
+            get: { profile.defaultAssignments[type]?.mode },
+            set: { newMode in
+                if let newMode {
+                    var intent = profile.defaultAssignments[type] ?? AssignmentIntent()
+                    intent.mode = newMode
+                    profile.defaultAssignments[type] = intent
+                } else {
+                    profile.defaultAssignments[type] = nil
+                }
+            }
+        )
+    }
+
+    private func defaultBinding<T>(for type: ItemType, _ keyPath: WritableKeyPath<AssignmentIntent, T>) -> Binding<T> {
+        Binding(
+            get: { (profile.defaultAssignments[type] ?? AssignmentIntent())[keyPath: keyPath] },
+            set: { newValue in
+                var intent = profile.defaultAssignments[type] ?? AssignmentIntent()
+                intent[keyPath: keyPath] = newValue
+                profile.defaultAssignments[type] = intent
+            }
         )
     }
 }
