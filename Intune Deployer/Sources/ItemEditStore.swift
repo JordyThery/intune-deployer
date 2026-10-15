@@ -118,9 +118,14 @@ final class ItemEditStore {
     /// - file now equals the edit → edit cleared (the source caught up)
     /// - file unchanged since the edit → kept
     /// - file changed differently → kept, flagged as a conflict
-    func reconcile(sourceID: UUID, originalContents: [String: Data]) {
+    ///
+    /// `consideredPaths` is the scan's override snapshot: edits saved while
+    /// the scan was running are not part of it and must not be touched (a
+    /// stale scan would otherwise mistake them for deleted files).
+    func reconcile(sourceID: UUID, originalContents: [String: Data], consideredPaths: Set<String>) {
         var changed = false
-        for (id, edit) in edits where edit.sourceID == sourceID {
+        for (id, edit) in edits
+        where edit.sourceID == sourceID && consideredPaths.contains(edit.relativePath) {
             guard let original = originalContents[edit.relativePath] else {
                 edits[id] = nil
                 changed = true

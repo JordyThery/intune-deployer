@@ -79,7 +79,7 @@ struct ItemEditTests {
             "b.sh": Data(original.utf8),         // source unchanged
             "c.sh": Data("surprise".utf8),       // source changed differently
             // "d.sh" missing → file deleted
-        ])
+        ], consideredPaths: ["a.sh", "b.sh", "c.sh", "d.sh"])
 
         #expect(store.edit(for: caughtUp.itemID) == nil)
         #expect(store.edit(for: unchanged.itemID)?.hasConflict == false)
@@ -89,8 +89,14 @@ struct ItemEditTests {
         // Keeping a conflicted edit re-bases it on the new source content.
         store.keepDespiteConflict(itemID: conflicted.itemID, currentOriginal: Data("surprise".utf8))
         #expect(store.edit(for: conflicted.itemID)?.hasConflict == false)
-        store.reconcile(sourceID: sourceID, originalContents: ["c.sh": Data("surprise".utf8)])
+        store.reconcile(sourceID: sourceID, originalContents: ["c.sh": Data("surprise".utf8)], consideredPaths: ["c.sh"])
         #expect(store.edit(for: conflicted.itemID)?.hasConflict == false)
+
+        // Edits outside a scan's snapshot are never touched — a stale scan
+        // must not mistake a just-saved edit for a deleted file.
+        store.reconcile(sourceID: sourceID, originalContents: [:], consideredPaths: [])
+        #expect(store.edit(for: conflicted.itemID) != nil)
+        #expect(store.edit(for: unchanged.itemID) != nil)
     }
 
     // MARK: Validation
@@ -129,6 +135,16 @@ struct ItemEditTests {
             return
         }
         #expect(sizeMessage.contains("2 MB"))
+    }
+
+    @Test func minifiedJSONBecomesEditablePrettyPrint() throws {
+        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS"}"#
+        let text = try #require(ItemEditorView.editableText(from: Data(minified.utf8), pathExtension: "json"))
+        #expect(text.contains("\n"))
+        #expect(text.contains("\"name\" : \"Policy\""))
+        // Still parses to the same object.
+        let roundTripped = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+        #expect(roundTripped?["platforms"] as? String == "macOS")
     }
 
     @Test func binaryMobileconfigBecomesEditableXML() throws {
