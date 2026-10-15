@@ -8,6 +8,7 @@ struct IntuneDeployerApp: App {
     @State private var activityLog: ActivityLog
     @State private var session: TenantSession
     @State private var updates = UpdateChecker()
+    @State private var tour = TourState()
 
     init() {
         let auth = AuthManager()
@@ -28,12 +29,16 @@ struct IntuneDeployerApp: App {
                 .environment(activityLog)
                 .environment(session)
                 .environment(updates)
+                .environment(tour)
                 .frame(minWidth: 900, minHeight: 560)
                 .task { await updates.checkAutomatically() }
         }
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { updates.checkManually() }
+            }
+            CommandGroup(after: .help) {
+                Button("Guided Tour") { tour.start() }
             }
         }
 

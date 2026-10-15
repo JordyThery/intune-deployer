@@ -35,6 +35,9 @@ The app checks GitHub once a day for a newer release (turn this off in
 Updates…**). Because the app is sandboxed it downloads the update for you to
 replace in Applications, rather than installing itself.
 
+On first launch the app shows a guided tour of the workflow; replay it any
+time from **Help → Guided Tour**.
+
 ## Setup
 
 ### 1. Create an app registration (per tenant)

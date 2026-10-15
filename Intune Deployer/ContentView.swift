@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(TenantSession.self) private var session
     @Environment(AuthManager.self) private var auth
     @Environment(UpdateChecker.self) private var updates
+    @Environment(TourState.self) private var tour
 
     @State private var sidebarSelection: Set<SidebarSelection> = []
     @State private var selectedItemIDs: Set<String> = []
@@ -30,21 +31,25 @@ struct ContentView: View {
                     typeFilter: $typeFilter
                 )
                 .navigationSplitViewColumnWidth(min: 300, ideal: 380)
+                .tourAnchor(.items)
             }
         } detail: {
-            if let profile = selectedSidebarTenant {
-                TenantDetailView(profile: profile)
-            } else if selectedItems.count > 1 {
-                MultiItemDetailView(items: selectedItems)
-            } else if let item = selectedItems.first {
-                ItemDetailView(item: item)
-            } else {
-                ContentUnavailableView(
-                    "No Item Selected",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("Select an item to see its detected type, variables and a preview.")
-                )
+            Group {
+                if let profile = selectedSidebarTenant {
+                    TenantDetailView(profile: profile)
+                } else if selectedItems.count > 1 {
+                    MultiItemDetailView(items: selectedItems)
+                } else if let item = selectedItems.first {
+                    ItemDetailView(item: item)
+                } else {
+                    ContentUnavailableView(
+                        "No Item Selected",
+                        systemImage: "doc.text.magnifyingglass",
+                        description: Text("Select an item to see its detected type, variables and a preview.")
+                    )
+                }
             }
+            .tourAnchor(.detail)
         }
         .toolbar {
             ToolbarItem {
@@ -126,6 +131,7 @@ struct ContentView: View {
                 tenantStore.selectedProfileID = id
             }
         }
+        .guidedTour(tour)
     }
 
     // MARK: - Toolbar pieces

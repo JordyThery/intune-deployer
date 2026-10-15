@@ -63,6 +63,7 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.borderless)
             }
+            .tourAnchor(.sources)
 
             Section("Tenant Profiles") {
                 ForEach(tenantStore.profiles) { profile in
@@ -98,6 +99,7 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.borderless)
             }
+            .tourAnchor(.tenantProfiles)
         }
         .fileImporter(
             isPresented: $isPickingFolder,
