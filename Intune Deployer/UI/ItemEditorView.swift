@@ -115,16 +115,19 @@ struct ItemEditorView: View {
         }
     }
 
-    /// The text presented in the editor. Minified JSON is pretty-printed and
-    /// binary mobileconfig plists are converted to XML — the stored edit is
-    /// the readable form, which deploys identically (plans compare parsed
-    /// values, not bytes).
+    /// The text presented in the editor. JSON is pretty-printed with the
+    /// read-only Graph metadata removed (the deploy path strips those keys
+    /// anyway), and binary mobileconfig plists are converted to XML — the
+    /// stored edit is the readable form, which deploys identically (plans
+    /// compare parsed values, not bytes).
     nonisolated static func editableText(from data: Data, pathExtension: String) -> String? {
         if pathExtension == "json",
-           let object = try? JSONSerialization.jsonObject(with: data),
-           let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
-           let text = String(data: pretty, encoding: .utf8) {
-            return text
+           let object = try? JSONSerialization.jsonObject(with: data) {
+            let cleaned = (object as? [String: Any]).map { PayloadBuilder.stripServerKeys($0) } ?? object
+            if let pretty = try? JSONSerialization.data(withJSONObject: cleaned, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+               let text = String(data: pretty, encoding: .utf8) {
+                return text
+            }
         }
         if let text = String(data: data, encoding: .utf8) {
             return text

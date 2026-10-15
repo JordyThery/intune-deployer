@@ -137,12 +137,19 @@ struct ItemEditTests {
         #expect(sizeMessage.contains("2 MB"))
     }
 
-    @Test func minifiedJSONBecomesEditablePrettyPrint() throws {
-        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS"}"#
+    @Test func minifiedJSONBecomesEditablePrettyPrintWithoutServerKeys() throws {
+        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS","@odata.context":"x","id":"abc","createdDateTime":"2026-01-01","settingCount":1}"#
         let text = try #require(ItemEditorView.editableText(from: Data(minified.utf8), pathExtension: "json"))
         #expect(text.contains("\n"))
         #expect(text.contains("\"name\" : \"Policy\""))
-        // Still parses to the same object.
+        // Read-only Graph metadata the deploy path strips is hidden; nested
+        // ids (setting instance ids) are content and stay.
+        #expect(!text.contains("@odata.context"))
+        #expect(!text.contains("createdDateTime"))
+        #expect(!text.contains("settingCount"))
+        #expect(!text.contains("abc"))
+        #expect(text.contains("\"id\" : \"0\""))
+        // Still parses to the same deployable object.
         let roundTripped = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
         #expect(roundTripped?["platforms"] as? String == "macOS")
     }

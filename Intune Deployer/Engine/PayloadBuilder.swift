@@ -185,7 +185,8 @@ nonisolated enum PayloadBuilder {
         try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
     }
 
-    private static func stripServerKeys(_ dict: [String: Any]) -> [String: Any] {
+    /// Also used by the item editor so edits show the payload as deployed.
+    static func stripServerKeys(_ dict: [String: Any]) -> [String: Any] {
         var result = dict.filter { !strippedKeys.contains($0.key) }
         // roleScopeTagIds: drop when unset/default so we don't fight the server.
         if let tags = result["roleScopeTagIds"] as? [String], tags.isEmpty || tags == ["0"] {
