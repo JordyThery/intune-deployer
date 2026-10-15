@@ -17,14 +17,19 @@ final class SourceStore {
     /// Newer release tag per GitHub source, when one is available.
     private(set) var availableUpdates: [UUID: String] = [:]
 
+    /// In-app content overrides; items read through `fileContents(of:)` and
+    /// the scan overlay see edited content instead of the file.
+    let edits: ItemEditStore
+
     private let storageURL: URL
     private let cacheRoot: URL
 
-    init(storageURL: URL? = nil) {
+    init(storageURL: URL? = nil, editStore: ItemEditStore? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Intune Deployer", isDirectory: true)
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
+        self.edits = editStore ?? ItemEditStore()
         load()
     }
 
@@ -71,6 +76,7 @@ final class SourceStore {
         scanResults[id] = nil
         scanErrors[id] = nil
         availableUpdates[id] = nil
+        edits.removeAll(forSource: id)
         try? FileManager.default.removeItem(at: cacheDirectory(for: id))
         save()
     }
@@ -243,18 +249,40 @@ final class SourceStore {
 
     private func runScan(root: URL, source: BaselineSource) async throws {
         let sourceID = source.id
-        let result = try await Task.detached(priority: .userInitiated) {
-            try InferenceEngine.scan(root: root, sourceID: sourceID)
+        let overrides = edits.overrides(forSource: sourceID)
+        let (result, originals) = try await Task.detached(priority: .userInitiated) {
+            let result = try InferenceEngine.scan(root: root, sourceID: sourceID, overrides: overrides)
+            // Current on-disk content of every edited file, for reconciliation.
+            var originals: [String: Data] = [:]
+            for path in overrides.keys {
+                if let data = try? Data(contentsOf: root.appending(path: path)) {
+                    originals[path] = data
+                }
+            }
+            return (result, originals)
         }.value
+        // Edits cleared here were byte-identical to the file, and edits for
+        // deleted files have no item — the scan result stays consistent.
+        edits.reconcile(sourceID: sourceID, originalContents: originals)
         scanResults[sourceID] = result
         Self.logger.info("Scanned \(source.name, privacy: .public): \(result.items.count) items, \(result.skipped.count) skipped")
     }
 
     // MARK: - File access
 
-    /// Reads an item's file. Local folders need security-scoped access; the
-    /// GitHub cache lives in our container and is read directly.
+    /// An item's effective content: the in-app edit when one exists, else the
+    /// file. Preview, token scanning, plan and apply all read through here.
     func fileContents(of item: InferredItem) throws -> Data {
+        if let override = edits.contentOverride(for: item.id) {
+            return override
+        }
+        return try originalFileContents(of: item)
+    }
+
+    /// Reads an item's file, bypassing any in-app edit. Local folders need
+    /// security-scoped access; the GitHub cache lives in our container and is
+    /// read directly.
+    func originalFileContents(of item: InferredItem) throws -> Data {
         guard let source = sources.first(where: { $0.id == item.sourceID }) else {
             throw CocoaError(.fileNoSuchFile)
         }

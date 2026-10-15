@@ -31,7 +31,8 @@ extension TenantSession {
                     let appInfo = try? await Self.inspectAppPackage(named: item.fileURL.lastPathComponent, data: data)
                     selected.append(PlanInput.SelectedItem(item: item, fileData: Data(), appInfo: appInfo))
                 } else {
-                    selected.append(PlanInput.SelectedItem(item: item, fileData: data))
+                    let isEdited = sourceStore.edits.edit(for: item.id) != nil
+                    selected.append(PlanInput.SelectedItem(item: item, fileData: data, isEdited: isEdited))
                 }
             } catch {
                 planError = "Could not read \(item.relativePath): \(error.localizedDescription)"

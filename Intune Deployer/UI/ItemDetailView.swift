@@ -7,14 +7,25 @@ struct ItemDetailView: View {
     @Environment(TenantStore.self) private var tenantStore
     let item: InferredItem
 
+    @AppStorage("enableItemEditing") private var editingEnabled = false
     @State private var previewText: String?
     @State private var previewError: String?
+    @State private var isEditing = false
+    @State private var showOriginal = false
+    @State private var confirmingRevert = false
+
+    private var currentEdit: ItemEdit? {
+        store.edits.edit(for: item.id)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 detectionSection
+                if editingEnabled || currentEdit != nil, item.type != .app {
+                    editSection
+                }
                 if !item.tokens.isEmpty {
                     tokensSection
                 }
@@ -35,9 +46,29 @@ struct ItemDetailView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task(id: item.id) {
+        .task(id: previewRevision) {
             await loadPreview()
         }
+        .onChange(of: item.id) { showOriginal = false }
+        .sheet(isPresented: $isEditing) {
+            ItemEditorView(item: item)
+        }
+        .confirmationDialog(
+            "Revert “\(item.displayName)” to the source file?",
+            isPresented: $confirmingRevert,
+            titleVisibility: .visible
+        ) {
+            Button("Revert", role: .destructive) { revertEdit() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The in-app edit is discarded; the file's content deploys again. Objects already in a tenant are not changed until the next Apply.")
+        }
+    }
+
+    /// Reloads the preview when the item, the edit, or the shown variant
+    /// changes.
+    private var previewRevision: String {
+        "\(item.id)|\(showOriginal)|\(currentEdit?.modified.timeIntervalSinceReferenceDate ?? 0)"
     }
 
     private var header: some View {
@@ -48,10 +79,67 @@ struct ItemDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayName)
                     .font(.title2.bold())
-                Text(item.type.displayName)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(item.type.displayName)
+                    if let edit = currentEdit {
+                        Text(edit.hasConflict ? "Edited · source changed" : "Edited")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(edit.hasConflict ? .yellow.opacity(0.3) : .blue.opacity(0.15),
+                                        in: Capsule())
+                    }
+                }
+                .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: - In-app edit
+
+    private var editSection: some View {
+        GroupBox("In-App Edit") {
+            VStack(alignment: .leading, spacing: 8) {
+                if let edit = currentEdit {
+                    if edit.hasConflict {
+                        Label("The source file changed since this edit. The edit still deploys; compare using the Original preview below.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    LabeledContent("Last edited", value: edit.modified.formatted(date: .abbreviated, time: .shortened))
+                        .font(.callout)
+                    HStack {
+                        if editingEnabled {
+                            Button("Edit Content…") { isEditing = true }
+                        }
+                        if edit.hasConflict {
+                            Button("Keep My Edit") { keepDespiteConflict() }
+                                .help("Accepts the new source content as the comparison base; the edit keeps deploying")
+                            Button("Use Source Version", role: .destructive) { confirmingRevert = true }
+                        } else {
+                            Button("Revert to Source…", role: .destructive) { confirmingRevert = true }
+                        }
+                    }
+                } else {
+                    Button("Edit Content…") { isEditing = true }
+                    Text("Changes are kept in the app and deployed instead of the file — the source file is never modified.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func revertEdit() {
+        store.edits.revert(itemID: item.id)
+        showOriginal = false
+        Task { await store.scan(sourceID: item.sourceID) }
+    }
+
+    private func keepDespiteConflict() {
+        guard let original = try? store.originalFileContents(of: item) else { return }
+        store.edits.keepDespiteConflict(itemID: item.id, currentOriginal: original)
     }
 
     private var detectionSection: some View {
@@ -131,7 +219,7 @@ struct ItemDetailView: View {
     }
 
     private var previewSection: some View {
-        GroupBox("Preview") {
+        GroupBox {
             Group {
                 if let previewError {
                     Label(previewError, systemImage: "exclamationmark.triangle")
@@ -146,6 +234,19 @@ struct ItemDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            HStack {
+                Text("Preview")
+                if currentEdit != nil {
+                    Picker("Preview content", selection: $showOriginal) {
+                        Text("Edited").tag(false)
+                        Text("Original").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
         }
     }
 
@@ -158,7 +259,9 @@ struct ItemDetailView: View {
             return
         }
         do {
-            let data = try store.fileContents(of: item)
+            let data = showOriginal
+                ? try store.originalFileContents(of: item)
+                : try store.fileContents(of: item)
             previewText = Self.formatted(data: data, pathExtension: item.fileURL.pathExtension.lowercased())
         } catch {
             previewError = "Could not load preview: \(error.localizedDescription)"

@@ -7,12 +7,29 @@ struct SettingsView: View {
     @State private var tokenStatus: String?
     // Same key UpdateChecker reads; unset means enabled.
     @AppStorage("checksForUpdates") private var checksForUpdates = true
+    // Same key ItemDetailView reads; unset means disabled.
+    @AppStorage("enableItemEditing") private var enableItemEditing = false
 
     var body: some View {
         Form {
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: $checksForUpdates)
                     .help("Ask GitHub once a day whether a newer release exists. Nothing but the request itself is sent.")
+            }
+
+            Section {
+                Toggle("Enable item editing", isOn: $enableItemEditing)
+            } header: {
+                Text("Item Editing")
+            } footer: {
+                Text("""
+                Shows an Edit button on items so their content can be changed inside the \
+                app. Edits never modify the source files — they are deployed instead of \
+                the file until reverted, and are marked in the item list and every plan. \
+                Turning this off hides the button; existing edits stay applied.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {

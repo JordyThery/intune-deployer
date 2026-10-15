@@ -6,7 +6,9 @@ nonisolated enum InferenceEngine {
     /// Scans `root` and returns inferred items plus skipped files with reasons.
     /// `sourceID` feeds the stable item identity. Hidden files (including the
     /// app-managed .baseline.json) and bundle contents are skipped.
-    static func scan(root: URL, sourceID: UUID) throws -> ScanResult {
+    /// `overrides` maps relative paths to in-app edited content, classified
+    /// instead of the file on disk.
+    static func scan(root: URL, sourceID: UUID, overrides: [String: Data] = [:]) throws -> ScanResult {
         let fileManager = FileManager.default
         var result = ScanResult()
 
@@ -28,7 +30,7 @@ nonisolated enum InferenceEngine {
         let rootPath = root.standardizedFileURL.path
         for url in fileURLs.sorted(by: { $0.path < $1.path }) {
             let relativePath = relativePath(of: url, underRootPath: rootPath)
-            switch classify(url: url, relativePath: relativePath, sourceID: sourceID) {
+            switch classify(url: url, relativePath: relativePath, sourceID: sourceID, overrideData: overrides[relativePath]) {
             case .item(let item):
                 result.items.append(item)
             case .skip(let reason):
@@ -38,9 +40,16 @@ nonisolated enum InferenceEngine {
         return result
     }
 
-    private enum Classification {
+    /// The outcome of classifying a single file's content.
+    enum Classification {
         case item(InferredItem)
         case skip(reason: String)
+    }
+
+    /// Classifies in-memory content as if it were the file at `url` — used to
+    /// validate in-app edits without touching the file.
+    static func classify(data: Data, url: URL, relativePath: String, sourceID: UUID) -> Classification {
+        classify(url: url, relativePath: relativePath, sourceID: sourceID, overrideData: data)
     }
 
     private static func relativePath(of url: URL, underRootPath rootPath: String) -> String {
@@ -49,9 +58,13 @@ nonisolated enum InferenceEngine {
         return String(String(path.dropFirst(rootPath.count)).trimmingPrefix("/"))
     }
 
-    private static func classify(url: URL, relativePath: String, sourceID: UUID) -> Classification {
+    private static func classify(url: URL, relativePath: String, sourceID: UUID, overrideData: Data? = nil) -> Classification {
         let ext = url.pathExtension.lowercased()
         let baseName = url.deletingPathExtension().lastPathComponent
+        // In-app edits replace the file content for classification.
+        func fileData() -> Data? {
+            overrideData ?? (try? Data(contentsOf: url))
+        }
 
         func makeItem(
             type: ItemType,
@@ -77,7 +90,7 @@ nonisolated enum InferenceEngine {
 
         switch ext {
         case "json":
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data = fileData() else {
                 return .skip(reason: "Could not read file")
             }
             switch JSONInference.classify(data: data) {
@@ -94,7 +107,7 @@ nonisolated enum InferenceEngine {
             }
 
         case "mobileconfig":
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data = fileData() else {
                 return .skip(reason: "Could not read file")
             }
             switch MobileConfigInference.classify(data: data) {
@@ -110,7 +123,7 @@ nonisolated enum InferenceEngine {
             }
 
         case "sh", "zsh":
-            guard let text = readText(at: url) else {
+            guard let text = fileData().flatMap(decodeText) else {
                 return .skip(reason: "Could not read file as text")
             }
             let directive = ScriptDirective.parse(scriptText: text)
@@ -174,9 +187,8 @@ nonisolated enum InferenceEngine {
         }
     }
 
-    private static func readText(at url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return String(data: data, encoding: .utf8)
+    private static func decodeText(_ data: Data) -> String? {
+        String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .isoLatin1)
     }
 }

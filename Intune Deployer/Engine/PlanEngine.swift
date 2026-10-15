@@ -26,11 +26,14 @@ nonisolated struct PlanInput: Sendable {
         /// Bundle info for .pkg/.dmg items, inspected before planning.
         /// nil for other types, or when inspection failed (plan error).
         let appInfo: AppPackageInfo?
+        /// True when `fileData` is an in-app edit, not the source file.
+        let isEdited: Bool
 
-        init(item: InferredItem, fileData: Data, appInfo: AppPackageInfo? = nil) {
+        init(item: InferredItem, fileData: Data, appInfo: AppPackageInfo? = nil, isEdited: Bool = false) {
             self.item = item
             self.fileData = fileData
             self.appInfo = appInfo
+            self.isEdited = isEdited
         }
     }
 
@@ -102,6 +105,10 @@ nonisolated enum PlanEngine {
         for (selected, built) in builtPayloads {
             var warnings = built.warnings
             let item = selected.item
+
+            if selected.isEdited {
+                warnings.append("Content was edited in the app — it differs from the source file")
+            }
 
             // Settings Catalog: validate settingDefinitionIds against the tenant.
             if built.collection == .settingsCatalog {

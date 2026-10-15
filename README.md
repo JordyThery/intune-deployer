@@ -136,6 +136,18 @@ Shell script options also come from the directive (first 15 lines):
 | `retries` | retry count |
 | `hideNotifications` | `true` / `false` |
 
+### Editing items in the app
+
+With **Settings → Item Editing** enabled, every item except app packages gets
+an **Edit Content…** button in its detail view. Edits are kept inside the app
+and deployed instead of the file — **the source file is never modified**.
+Edited items are marked in the list and in every plan, show an
+Original/Edited preview, and can be reverted with one click. When a source
+later changes (a new release, an edited file): if it now matches your edit
+the edit clears itself; if it changed differently the item is flagged so you
+can keep the edit or take the source version. An edit may change values and
+names but not what type of object the file is.
+
 ### Variables
 
 Files may contain `{{TokenName}}` placeholders (JSON values, mobileconfig

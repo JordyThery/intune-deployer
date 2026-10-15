@@ -44,7 +44,8 @@ struct ItemListView: View {
                         item: item,
                         sourceName: sourceName(for: item),
                         isSelected: selectionBinding(for: item),
-                        hasActiveProfile: tenantStore.selectedProfile != nil
+                        hasActiveProfile: tenantStore.selectedProfile != nil,
+                        edit: store.edits.edit(for: item.id)
                     )
                     .tag(item.id)
                 }
@@ -230,6 +231,7 @@ private struct ItemRow: View {
     let sourceName: String
     @Binding var isSelected: Bool
     let hasActiveProfile: Bool
+    let edit: ItemEdit?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -254,6 +256,19 @@ private struct ItemRow: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
+            if let edit {
+                if edit.hasConflict {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                        .help("The source file changed since the in-app edit — review it in the item's details")
+                        .accessibilityLabel("Edited in the app; source changed since the edit")
+                } else {
+                    Image(systemName: "pencil.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .help("Content was edited in the app — the edit deploys instead of the file")
+                        .accessibilityLabel("Edited in the app")
+                }
+            }
             if !item.tokens.isEmpty {
                 Image(systemName: "curlybraces")
                     .foregroundStyle(.secondary)
