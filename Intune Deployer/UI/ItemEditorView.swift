@@ -115,22 +115,16 @@ struct ItemEditorView: View {
         }
     }
 
-    /// The text presented in the editor. JSON is pretty-printed with the
-    /// read-only Graph metadata removed (the deploy path strips those keys
-    /// anyway) and nulls dropped (Graph treats a missing optional field and
-    /// an explicit null identically — exports are full of echoed nulls), and
+    /// The text presented in the editor. Minified JSON is pretty-printed and
     /// binary mobileconfig plists are converted to XML — the stored edit is
     /// the readable form, which deploys identically (plans compare parsed
     /// values, not bytes).
     nonisolated static func editableText(from data: Data, pathExtension: String) -> String? {
         if pathExtension == "json",
-           let object = try? JSONSerialization.jsonObject(with: data) {
-            var cleaned = (object as? [String: Any]).map { PayloadBuilder.stripServerKeys($0) } ?? object
-            cleaned = removingNulls(cleaned) ?? cleaned
-            if let pretty = try? JSONSerialization.data(withJSONObject: cleaned, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
-               let text = String(data: pretty, encoding: .utf8) {
-                return text
-            }
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+           let text = String(data: pretty, encoding: .utf8) {
+            return text
         }
         if let text = String(data: data, encoding: .utf8) {
             return text
@@ -141,22 +135,5 @@ struct ItemEditorView: View {
             return String(data: xml, encoding: .utf8)
         }
         return String(data: data, encoding: .isoLatin1)
-    }
-
-    /// Recursively drops JSON nulls. Empty dictionaries that only held nulls
-    /// (e.g. a templateReference of nothing but null fields) disappear too.
-    nonisolated private static func removingNulls(_ value: Any) -> Any? {
-        if value is NSNull { return nil }
-        if let dict = value as? [String: Any] {
-            var result: [String: Any] = [:]
-            for (key, child) in dict {
-                if let cleaned = removingNulls(child) { result[key] = cleaned }
-            }
-            return result.isEmpty && !dict.isEmpty ? nil : result
-        }
-        if let array = value as? [Any] {
-            return array.compactMap { removingNulls($0) }
-        }
-        return value
     }
 }

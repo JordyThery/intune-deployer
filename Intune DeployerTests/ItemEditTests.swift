@@ -137,44 +137,14 @@ struct ItemEditTests {
         #expect(sizeMessage.contains("2 MB"))
     }
 
-    @Test func minifiedJSONBecomesEditablePrettyPrintWithoutServerKeys() throws {
-        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS","@odata.context":"x","id":"abc","createdDateTime":"2026-01-01","settingCount":1}"#
+    @Test func minifiedJSONBecomesEditablePrettyPrint() throws {
+        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS"}"#
         let text = try #require(ItemEditorView.editableText(from: Data(minified.utf8), pathExtension: "json"))
         #expect(text.contains("\n"))
         #expect(text.contains("\"name\" : \"Policy\""))
-        // Read-only Graph metadata the deploy path strips is hidden; nested
-        // ids (setting instance ids) are content and stay.
-        #expect(!text.contains("@odata.context"))
-        #expect(!text.contains("createdDateTime"))
-        #expect(!text.contains("settingCount"))
-        #expect(!text.contains("abc"))
-        #expect(text.contains("\"id\" : \"0\""))
-        // Still parses to the same deployable object.
+        // Still parses to the same object.
         let roundTripped = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
         #expect(roundTripped?["platforms"] as? String == "macOS")
-    }
-
-    @Test func editorDropsEchoedNullsButKeepsValues() throws {
-        // The shape Graph exports produce: nulls everywhere, templateReference
-        // of nothing but nulls, nested values that must survive.
-        let export = """
-        {"name":"P","platforms":"macOS","technologies":"mdm","settings":[{"id":"0","settingInstance":{
-        "@odata.type":"#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
-        "auditRuleInformation":null,"settingInstanceTemplateReference":null,
-        "settingDefinitionId":"com.apple.x","choiceSettingValue":{"settingValueTemplateReference":null,
-        "value":"com.apple.x_false","children":[]}}}],
-        "templateReference":{"templateId":"","templateFamily":"none","templateDisplayName":null,"templateDisplayVersion":null}}
-        """
-        let text = try #require(ItemEditorView.editableText(from: Data(export.utf8), pathExtension: "json"))
-        #expect(!text.contains("null"))
-        #expect(!text.contains("auditRuleInformation"))
-        #expect(!text.contains("templateDisplayName"))
-        #expect(text.contains("\"value\" : \"com.apple.x_false\""))
-        #expect(text.contains("\"children\" : [")) // empty arrays stay
-        #expect(text.contains("\"templateFamily\" : \"none\"")) // non-null siblings stay
-        // Classifies as the same type it came from.
-        let item = makeItem("sc/p.json", type: .settingsCatalog)
-        #expect(ItemEditValidation.validate(text: text, for: item) == .valid(Data(text.utf8)))
     }
 
     @Test func binaryMobileconfigBecomesEditableXML() throws {
