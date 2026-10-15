@@ -51,8 +51,7 @@ nonisolated enum VariableSubstitution {
 
     static func substitute(_ text: String, variables: [String: String], escaping: Escaping = .none) -> Result {
         var unresolved = Set<String>()
-        let tokenPattern = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/
-        let substituted = text.replacing(tokenPattern) { match in
+        let substituted = text.replacing(TokenScanner.tokenPattern) { match in
             let name = String(match.1)
             if let value = variables[name], !value.isEmpty {
                 return escaping.escape(value)

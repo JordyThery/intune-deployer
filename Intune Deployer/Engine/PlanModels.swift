@@ -85,7 +85,6 @@ nonisolated struct Plan: Sendable {
     var issues: [PlanIssue] = []
 
     var errors: [PlanIssue] { issues.filter { $0.severity == .error } }
-    var warnings: [PlanIssue] { issues.filter { $0.severity == .warning } }
     var hasErrors: Bool { !errors.isEmpty }
 
     var createCount: Int { actions.count(where: { $0.kind == .create }) + groupsToCreate.count + filtersToCreate.count }

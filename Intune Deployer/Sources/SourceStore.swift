@@ -23,6 +23,10 @@ final class SourceStore {
 
     private let storageURL: URL
     private let cacheRoot: URL
+    /// Monotonic per-source scan counter: only the latest-started scan may
+    /// publish results, so an older scan finishing late cannot overwrite a
+    /// newer one (e.g. the rescan after saving an item edit).
+    private var scanGenerations: [UUID: Int] = [:]
 
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -149,7 +153,10 @@ final class SourceStore {
     /// Downloads (or refreshes) the repo content, then scans it.
     func syncGitHub(sourceID: UUID) async {
         guard let source = sources.first(where: { $0.id == sourceID }),
-              let spec = source.gitHubSpec else { return }
+              let spec = source.gitHubSpec,
+              // A sync is already running for this source (e.g. Sync Now
+              // chosen twice) — two extractions into one cache would collide.
+              !scanningSourceIDs.contains(sourceID) else { return }
 
         scanningSourceIDs.insert(sourceID)
         scanErrors[sourceID] = nil
@@ -237,6 +244,9 @@ final class SourceStore {
     private func gitHubScanRoot(for source: BaselineSource) throws -> URL {
         var root = try GitHubClient.contentRoot(in: contentDirectory(for: source.id))
         if let subfolder = source.gitHubSpec?.subfolder, !subfolder.isEmpty {
+            guard !subfolder.split(separator: "/").contains("..") else {
+                throw GitHubError.notFound("The subfolder must stay inside the repository")
+            }
             root = root.appending(path: subfolder)
             guard FileManager.default.fileExists(atPath: root.path) else {
                 throw GitHubError.notFound("Subfolder “\(subfolder)” does not exist in the synced repository")
@@ -249,21 +259,31 @@ final class SourceStore {
 
     private func runScan(root: URL, source: BaselineSource) async throws {
         let sourceID = source.id
+        let generation = (scanGenerations[sourceID] ?? 0) + 1
+        scanGenerations[sourceID] = generation
         let overrides = edits.overrides(forSource: sourceID)
-        let (result, originals) = try await Task.detached(priority: .userInitiated) {
+        let (result, originals, considered) = try await Task.detached(priority: .userInitiated) {
             let result = try InferenceEngine.scan(root: root, sourceID: sourceID, overrides: overrides)
             // Current on-disk content of every edited file, for reconciliation.
+            // A file that exists but momentarily fails to read is taken out of
+            // consideration so a transient error cannot delete the edit.
             var originals: [String: Data] = [:]
+            var considered = Set(overrides.keys)
             for path in overrides.keys {
-                if let data = try? Data(contentsOf: root.appending(path: path)) {
+                let fileURL = root.appending(path: path)
+                if let data = try? Data(contentsOf: fileURL) {
                     originals[path] = data
+                } else if FileManager.default.fileExists(atPath: fileURL.path) {
+                    considered.remove(path)
                 }
             }
-            return (result, originals)
+            return (result, originals, considered)
         }.value
+        // A newer scan started while this one ran — discard, it will publish.
+        guard scanGenerations[sourceID] == generation else { return }
         // Edits cleared here were byte-identical to the file, and edits for
         // deleted files have no item — the scan result stays consistent.
-        edits.reconcile(sourceID: sourceID, originalContents: originals, consideredPaths: Set(overrides.keys))
+        edits.reconcile(sourceID: sourceID, originalContents: originals, consideredPaths: considered)
         scanResults[sourceID] = result
         Self.logger.info("Scanned \(source.name, privacy: .public): \(result.items.count) items, \(result.skipped.count) skipped")
     }

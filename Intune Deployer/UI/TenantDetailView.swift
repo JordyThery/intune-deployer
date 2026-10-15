@@ -36,7 +36,7 @@ struct TenantDetailView: View {
                         LabeledContent("Account", value: auth.account(for: profile)?.username ?? "not signed in")
                         LabeledContent("Naming prefix", value: profile.namingPrefix.isEmpty ? "none" : profile.namingPrefix)
                         LabeledContent("Variables", value: "\(profile.variables.count)")
-                        LabeledContent("Selected items", value: "\(profile.selectedItemIDs.count)")
+                        LabeledContent("Included items", value: "\(profile.selectedItemIDs.count)")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .font(.callout)

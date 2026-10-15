@@ -3,7 +3,8 @@ import Security
 
 /// Stores the optional GitHub personal access token in the Keychain —
 /// needed for private repositories; also raises the API rate limit.
-/// Never persisted in UserDefaults or files.
+/// Never persisted in UserDefaults or files, never marked synchronizable
+/// (so it cannot sync to iCloud Keychain).
 nonisolated enum GitHubTokenStore {
     private static let service = "be.jordythery.intune-deployer.github"
     private static let account = "personal-access-token"
@@ -44,7 +45,7 @@ nonisolated enum GitHubTokenStore {
         if status == errSecItemNotFound {
             var attributes = query
             attributes[kSecValueData as String] = Data(trimmed.utf8)
-            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
             status = SecItemAdd(attributes as CFDictionary, nil)
         }
         return status == errSecSuccess

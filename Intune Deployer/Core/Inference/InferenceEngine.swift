@@ -170,7 +170,7 @@ nonisolated enum InferenceEngine {
             return .skip(reason: "XML manifests from other tools are ignored")
 
         default:
-            return .skip(reason: "Unsupported file type (.\(ext.isEmpty ? url.lastPathComponent : ext))")
+            return .skip(reason: ext.isEmpty ? "Unsupported file (no extension)" : "Unsupported file type (.\(ext))")
         }
     }
 

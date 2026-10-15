@@ -451,12 +451,18 @@ struct PlanEngineTests {
         #expect(plan.actions.first?.assignment == nil)
     }
 
-    @Test func assignmentFiltersIgnoreTypeDefaults() {
-        var defaultIntent = AssignmentIntent()
-        defaultIntent.mode = .allDevices
-        let profile = TenantProfile(displayName: "T", tenantID: "t", defaultAssignments: [.assignmentFilter: defaultIntent])
-        let effective = profile.effectiveAssignment(for: "abc", type: .assignmentFilter)
-        #expect(effective.mode == AssignmentIntent.Mode.none)
+    @Test func assignmentFiltersIgnoreAllIntents() {
+        // Filters cannot be assigned: neither a type default nor an explicit
+        // per-item intent may produce an assignment for one.
+        var intent = AssignmentIntent()
+        intent.mode = .allDevices
+        let profile = TenantProfile(
+            displayName: "T", tenantID: "t",
+            assignments: ["abc": intent],
+            defaultAssignments: [.assignmentFilter: intent]
+        )
+        #expect(profile.effectiveAssignment(for: "abc", type: .assignmentFilter).mode == AssignmentIntent.Mode.none)
+        #expect(profile.effectiveAssignment(for: "other", type: .assignmentFilter).mode == AssignmentIntent.Mode.none)
     }
 
     @Test func defaultAssignmentsSurviveProfileEncoding() throws {

@@ -79,10 +79,11 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
 
     /// The intent used at plan time: an explicit per-item intent wins, then
     /// the per-type default, then "leave unchanged". A stored intent — even
-    /// "leave unchanged" — overrides the type default.
+    /// "leave unchanged" — overrides the type default. Assignment filters
+    /// cannot be assigned, so any intent stored for one is ignored.
     func effectiveAssignment(for itemID: String, type: ItemType) -> AssignmentIntent {
-        if let explicit = assignments[itemID] { return explicit }
         guard type != .assignmentFilter else { return AssignmentIntent() }
+        if let explicit = assignments[itemID] { return explicit }
         return defaultAssignments[type] ?? AssignmentIntent()
     }
 }

@@ -19,7 +19,7 @@ nonisolated struct AssignmentIntent: Codable, Hashable, Sendable {
         }
     }
 
-    enum FilterMode: String, Codable, CaseIterable, Sendable {
+    enum FilterMode: String, Codable, Sendable {
         case include
         case exclude
     }

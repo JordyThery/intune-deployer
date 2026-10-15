@@ -155,7 +155,8 @@ final class ItemEditStore {
         guard let data = try? Data(contentsOf: storageURL) else { return }
         do {
             let list = try JSONDecoder().decode([ItemEdit].self, from: data)
-            edits = Dictionary(uniqueKeysWithValues: list.map { ($0.itemID, $0) })
+            // Duplicate IDs (hand-edited file) must not crash the launch.
+            edits = Dictionary(list.map { ($0.itemID, $0) }, uniquingKeysWith: { _, newer in newer })
         } catch {
             Self.logger.error("Failed to decode item-edits.json: \(error.localizedDescription)")
         }

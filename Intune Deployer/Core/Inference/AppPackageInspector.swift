@@ -64,6 +64,8 @@ nonisolated enum AppPackageInspector {
             .split(whereSeparator: \.isNewline)
             .map(String.init)
             .filter { $0 == "Distribution" || $0.hasSuffix("/PackageInfo") || $0 == "PackageInfo" }
+            // Archive-listed paths are untrusted: never extract outside workDir.
+            .filter { !$0.split(separator: "/").contains("..") && !$0.hasPrefix("/") }
         guard !metadataPaths.isEmpty else {
             throw AppInspectionError.noMetadata("The .pkg contains no Distribution or PackageInfo metadata")
         }

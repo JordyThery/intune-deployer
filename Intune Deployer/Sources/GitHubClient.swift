@@ -31,7 +31,6 @@ nonisolated enum GitHubClient {
             let spdxId: String?
         }
 
-        let fullName: String
         let defaultBranch: String
         let htmlUrl: String?
         let license: License?
@@ -46,14 +45,23 @@ nonisolated enum GitHubClient {
 
     // MARK: - Metadata
 
+    /// Owner and repo come from user-entered source fields; a "/" or query
+    /// character would splice extra segments into the API request.
+    private static func validated(_ value: String) throws -> String {
+        guard !value.isEmpty, value.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#%")) == nil else {
+            throw GitHubError.notFound("“\(value)” is not a valid repository owner or name")
+        }
+        return value
+    }
+
     static func fetchRepoInfo(owner: String, repo: String, token: String? = nil) async throws -> RepoInfo {
-        try await get(RepoInfo.self, path: "repos/\(owner)/\(repo)", context: "\(owner)/\(repo)", token: token)
+        try await get(RepoInfo.self, path: "repos/\(try validated(owner))/\(try validated(repo))", context: "\(owner)/\(repo)", token: token)
     }
 
     /// Returns the 100 most recent releases (not paged further; tag-prefix
     /// matches older than that are not considered).
     static func fetchReleases(owner: String, repo: String, token: String? = nil) async throws -> [Release] {
-        try await get([Release].self, path: "repos/\(owner)/\(repo)/releases?per_page=100", context: "\(owner)/\(repo) releases", token: token)
+        try await get([Release].self, path: "repos/\(try validated(owner))/\(try validated(repo))/releases?per_page=100", context: "\(owner)/\(repo) releases", token: token)
     }
 
     /// Latest published (non-draft, non-prerelease) release, optionally
@@ -77,7 +85,8 @@ nonisolated enum GitHubClient {
     static func downloadAndExtract(owner: String, repo: String, ref: String, into destination: URL, token: String? = nil) async throws -> URL {
         // For private repos the 302 Location already carries an ephemeral
         // token, so the redirect to codeload works after auth at the API.
-        let url = apiBase.appending(path: "repos/\(owner)/\(repo)/zipball/\(ref)")
+        // (ref may legitimately contain "/", e.g. branch names.)
+        let url = apiBase.appending(path: "repos/\(try validated(owner))/\(try validated(repo))/zipball/\(ref)")
         let (tempFile, response) = try await URLSession.shared.download(for: request(for: url, token: token))
         defer { try? FileManager.default.removeItem(at: tempFile) }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -102,6 +111,7 @@ nonisolated enum GitHubClient {
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         do {
             try extractZip(at: zipURL, to: staging)
+            try removeSymlinks(in: staging)
             _ = try contentRoot(in: staging)
         } catch {
             try? fileManager.removeItem(at: staging)
@@ -126,6 +136,25 @@ nonisolated enum GitHubClient {
         guard process.terminationStatus == 0 else {
             let message = output.isEmpty ? "ditto exit \(process.terminationStatus)" : output
             throw GitHubError.extractionFailed(message.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    /// Deletes any symlinks the archive contained. Repositories can track
+    /// symlinks with arbitrary targets; following one during a later scan or
+    /// read must not reach outside the cache.
+    private static func removeSymlinks(in directory: URL) throws {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: []
+        ) else { return }
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey])
+            if values?.isSymbolicLink == true {
+                try fileManager.removeItem(at: url)
+                enumerator.skipDescendants()
+            }
         }
     }
 

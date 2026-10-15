@@ -45,7 +45,7 @@ struct ContentView: View {
                     ContentUnavailableView(
                         "No Item Selected",
                         systemImage: "doc.text.magnifyingglass",
-                        description: Text("Select an item to see its detected type, variables and a preview.")
+                        description: Text("Select an item to see its detected type, variables, preview and assignment.")
                     )
                 }
             }

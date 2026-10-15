@@ -59,7 +59,8 @@ nonisolated struct BaselineSource: Identifiable, Codable, Sendable, Hashable {
     let id: UUID
     var name: String
     var kind: Kind
-    /// Last resolved content path, for display when unavailable.
+    /// Last resolved content path or repository URL; persisted for
+    /// diagnostics (not currently shown in the UI).
     var lastKnownPath: String
     /// Sync details for GitHub sources.
     var gitHub: GitHubSyncState?

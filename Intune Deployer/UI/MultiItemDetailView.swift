@@ -16,8 +16,10 @@ struct MultiItemDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 deploymentSection
-                if let profile = tenantStore.selectedProfile {
-                    AssignmentEditorView(items: items, profile: profile)
+                // Assignment filters cannot themselves be assigned.
+                let assignable = items.filter { $0.type != .assignmentFilter }
+                if let profile = tenantStore.selectedProfile, !assignable.isEmpty {
+                    AssignmentEditorView(items: assignable, profile: profile)
                 }
             }
             .padding()
@@ -39,11 +41,11 @@ struct MultiItemDetailView: View {
         }
     }
 
-    /// e.g. "3 Shell Scripts, 2 Settings Catalog".
+    /// e.g. "3 × Shell Script, 2 × Settings Catalog".
     private var typeBreakdown: String {
         let counts = Dictionary(grouping: items, by: \.type).mapValues(\.count)
         return ItemType.allCases
-            .compactMap { type in counts[type].map { "\($0) \(type.displayName)" } }
+            .compactMap { type in counts[type].map { "\($0) × \(type.displayName)" } }
             .joined(separator: ", ")
     }
 
@@ -54,7 +56,7 @@ struct MultiItemDetailView: View {
                     Text("Select a tenant profile to choose items for deployment.")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("\(includedCount) of \(items.count) selected for deployment")
+                    Text("\(includedCount) of \(items.count) included for deployment")
                     HStack {
                         Button("Include All") { setIncluded(true) }
                             .disabled(includedCount == items.count)

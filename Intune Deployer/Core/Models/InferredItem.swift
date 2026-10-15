@@ -3,7 +3,7 @@ import Foundation
 /// How a shell script should run on the device. Values map 1:1 to the script
 /// header directive (`# intune: runAsAccount=user frequency=1440 ...`).
 nonisolated struct ScriptSettings: Codable, Sendable, Hashable {
-    enum RunAsAccount: String, Codable, Sendable, CaseIterable {
+    enum RunAsAccount: String, Codable, Sendable {
         case system
         case user
     }
@@ -16,7 +16,7 @@ nonisolated struct ScriptSettings: Codable, Sendable, Hashable {
 }
 
 /// The value type of a custom attribute script result.
-nonisolated enum CustomAttributeValueType: String, Codable, Sendable, CaseIterable {
+nonisolated enum CustomAttributeValueType: String, Codable, Sendable {
     case string
     case integer
     case dateTime

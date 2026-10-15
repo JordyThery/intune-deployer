@@ -165,7 +165,7 @@ struct GuidedTourOverlay: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                Button("Skip tour") { tour.end() }
+                Button("Skip Tour") { tour.end() }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                 Spacer()

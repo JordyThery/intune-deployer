@@ -237,6 +237,10 @@ struct PlanView: View {
             "\(plan.createCount) create\(plan.createCount == 1 ? "" : "s")",
             "\(plan.updateCount) update\(plan.updateCount == 1 ? "" : "s")",
         ]
+        let assignmentCount = plan.actions.count { $0.assignment != nil }
+        if assignmentCount > 0 {
+            parts.append("\(assignmentCount) assignment\(assignmentCount == 1 ? "" : "s")")
+        }
         if !orphansToDelete.isEmpty {
             parts.append("\(orphansToDelete.count) deletion\(orphansToDelete.count == 1 ? "" : "s")")
         }

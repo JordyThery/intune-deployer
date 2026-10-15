@@ -9,8 +9,6 @@ nonisolated struct SignedInAccount: Sendable, Equatable {
     let username: String
     /// MSAL account identifier (home account id) used for silent requests.
     let identifier: String
-    /// Home tenant of the signed-in account.
-    let homeTenantID: String?
 }
 
 nonisolated enum AuthError: LocalizedError {
@@ -46,7 +44,6 @@ nonisolated enum AppRegistrationInfo {
 
 /// Delegated Microsoft Graph scopes used by the app, requested incrementally.
 nonisolated enum GraphScopes {
-    static let signIn = ["User.Read"]
     /// Read-only scopes for preflight and tenant inventory. Verified
     /// least-privileged per endpoint docs:
     /// - configurationPolicies / deviceConfigurations / compliance / filters:
@@ -148,8 +145,7 @@ final class AuthManager {
         if let restored {
             accountsByProfile[profile.id] = SignedInAccount(
                 username: restored.username ?? "unknown",
-                identifier: restored.identifier ?? "",
-                homeTenantID: restored.homeAccountId?.tenantId
+                identifier: restored.identifier ?? ""
             )
         }
     }
@@ -301,8 +297,7 @@ final class AuthManager {
                 grantedScopes: result.scopes,
                 account: SignedInAccount(
                     username: result.account.username ?? "unknown",
-                    identifier: result.account.identifier ?? "",
-                    homeTenantID: result.account.homeAccountId?.tenantId
+                    identifier: result.account.identifier ?? ""
                 )
             ))
         }

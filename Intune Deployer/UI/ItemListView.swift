@@ -73,8 +73,13 @@ struct ItemListView: View {
         }
         .focused($listFocused)
         .onAppear { listFocused = true }
+        // Highlighted rows hidden by search, the type filter, or a source
+        // switch must not keep driving bulk actions and the detail column.
+        .onChange(of: items.map(\.id)) { _, visibleIDs in
+            selectedItemIDs.formIntersection(visibleIDs)
+        }
         .contextMenu(forSelectionType: String.self) { ids in
-            rowContextMenu(ids: ids)
+            rowContextMenu(ids: ids.intersection(Set(items.map(\.id))))
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search items")
         .overlay {
@@ -149,7 +154,7 @@ struct ItemListView: View {
             Text("Items")
             Spacer()
             if tenantStore.selectedProfile != nil {
-                Text("\(includedShownCount) of \(items.count) selected")
+                Text("\(includedShownCount) of \(items.count) included")
                     .foregroundStyle(.secondary)
             } else {
                 Text("\(items.count)")
@@ -169,7 +174,7 @@ struct ItemListView: View {
             .disabled(!hasProfile || ids.isEmpty)
         Divider()
         Menu("Assign To") {
-            Button("Type Default") { setAssignmentEntries(ids: ids, intent: nil) }
+            Button("Type default") { setAssignmentEntries(ids: ids, intent: nil) }
             Divider()
             ForEach(AssignmentIntent.Mode.allCases.filter { $0 != .group }, id: \.self) { mode in
                 Button(mode.displayName) {
@@ -196,9 +201,11 @@ struct ItemListView: View {
     }
 
     /// nil removes the per-item entries so the type default applies again.
+    /// Assignment filters cannot be assigned and are skipped.
     private func setAssignmentEntries(ids: Set<String>, intent: AssignmentIntent?) {
         guard var profile = tenantStore.selectedProfile else { return }
-        for id in ids {
+        let assignableIDs = Set(items.filter { $0.type != .assignmentFilter }.map(\.id))
+        for id in ids where assignableIDs.contains(id) {
             profile.assignments[id] = intent
         }
         tenantStore.update(profile)

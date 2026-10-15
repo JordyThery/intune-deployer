@@ -98,9 +98,21 @@ final class UpdateChecker {
             name: release.name ?? "Intune Deployer \(version)",
             notes: release.body ?? "",
             downloadURL: release.assets?.first { $0.name.hasSuffix(".zip") }
-                .flatMap { URL(string: $0.browser_download_url) },
-            pageURL: release.html_url.flatMap(URL.init(string:))
+                .flatMap { URL(string: $0.browser_download_url) }
+                .flatMap(Self.gitHubHTTPSOnly),
+            pageURL: release.html_url.flatMap(URL.init(string:)).flatMap(Self.gitHubHTTPSOnly)
         )
+    }
+
+    /// Release metadata is only trusted as far as GitHub: URLs taken from it
+    /// must stay on GitHub-operated hosts over HTTPS.
+    nonisolated private static func gitHubHTTPSOnly(_ url: URL) -> URL? {
+        guard url.scheme == "https",
+              let host = url.host(),
+              host == "github.com" || host.hasSuffix(".github.com") || host.hasSuffix(".githubusercontent.com") else {
+            return nil
+        }
+        return url
     }
 
     /// Numeric component comparison, so 2.10 is newer than 2.9 and a missing

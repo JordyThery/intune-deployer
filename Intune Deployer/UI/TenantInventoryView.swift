@@ -86,7 +86,7 @@ struct TenantInventoryView: View {
                     Label("Reload Inventory", systemImage: "arrow.clockwise.icloud")
                 }
                 .disabled(!auth.isSignedIn(profile) || session.isLoadingInventory)
-                .help("Reload existing tenant objects")
+                .help("Fetch the tenant's current objects again from Microsoft Graph")
             }
         }
         .navigationTitle(profile.displayName)

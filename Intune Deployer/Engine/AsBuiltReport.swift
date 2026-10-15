@@ -32,10 +32,10 @@ nonisolated enum AsBuiltReport {
             lines.append("## Prerequisites")
             lines.append("")
             for group in input.plan.groupsToCreate {
-                lines.append("- Entra security group **\(group.name)**")
+                lines.append("- Entra security group **\(mdEscape(group.name))**")
             }
             for filter in input.plan.filtersToCreate {
-                lines.append("- Assignment filter **\(filter.name)** — rule: `\(filter.rule)`")
+                lines.append("- Assignment filter **\(mdEscape(filter.name))** — rule: `\(filter.rule.replacingOccurrences(of: "`", with: "'"))`")
             }
             lines.append("")
         }
@@ -43,17 +43,17 @@ nonisolated enum AsBuiltReport {
         lines.append("## Items")
         lines.append("")
         for action in input.plan.actions {
-            lines.append("### \(action.displayName)")
+            lines.append("### \(mdEscape(action.displayName))")
             lines.append("")
             lines.append("| | |")
             lines.append("| --- | --- |")
             lines.append("| Type | \(action.collection.displayName) |")
             lines.append("| Action | \(action.kind.label) |")
-            lines.append("| Assignment | \(assignmentDescription(action.assignment)) |")
+            lines.append("| Assignment | \(mdEscape(assignmentDescription(action.assignment))) |")
             lines.append("| Identity tag | `\(ItemIdentity.tag(forShortID: action.id))` |")
             lines.append("")
             for warning in action.warnings {
-                lines.append("> ⚠️ \(warning)")
+                lines.append("> ⚠️ \(mdEscape(warning))")
                 lines.append("")
             }
             lines.append("<details><summary>Settings payload</summary>")
@@ -71,10 +71,21 @@ nonisolated enum AsBuiltReport {
         lines.append("| Step | Result |")
         lines.append("| --- | --- |")
         for result in input.results {
-            lines.append("| \(result.title) | \(outcomeText(result.outcome)) |")
+            lines.append("| \(mdEscape(result.title)) | \(mdEscape(outcomeText(result.outcome))) |")
         }
         lines.append("")
         return lines.joined(separator: "\n")
+    }
+
+    /// Baseline-controlled text in the Markdown report: neutralize inline
+    /// HTML and table/formatting metacharacters (the HTML report has its own
+    /// escaping).
+    private static func mdEscape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "|", with: "\\|")
+            .replacingOccurrences(of: "`", with: "\\`")
     }
 
     // MARK: - HTML

@@ -33,9 +33,10 @@ struct ItemDetailView: View {
                     scriptSettingsSection(settings)
                 }
                 if let attributeType = item.customAttributeType {
-                    LabeledContent("Attribute Type", value: attributeType.rawValue)
+                    LabeledContent("Attribute type", value: attributeType.rawValue)
                 }
-                if let profile = tenantStore.selectedProfile {
+                // Assignment filters cannot themselves be assigned.
+                if let profile = tenantStore.selectedProfile, item.type != .assignmentFilter {
                     AssignmentEditorView(items: [item], profile: profile)
                 }
                 if let source = itemSource, source.isGitHub {
@@ -275,8 +276,9 @@ struct ItemDetailView: View {
         var text: String
         switch pathExtension {
         case "json":
+            // Same formatting as the editor, so Preview and Edit never differ.
             if let object = try? JSONSerialization.jsonObject(with: data),
-               let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+               let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
                let string = String(data: pretty, encoding: .utf8) {
                 text = string
             } else {

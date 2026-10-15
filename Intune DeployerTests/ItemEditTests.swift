@@ -198,7 +198,11 @@ struct ItemEditTests {
         )
         store.addLocalFolder(at: root)
         let source = try #require(store.sources.first)
-        await store.scan(sourceID: source.id)
+        // addLocalFolder schedules its own initial scan; wait for it instead
+        // of racing it (a superseded scan discards its results by design).
+        for _ in 0..<200 where store.items(for: [source.id]).isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let item = try #require(store.items(for: [source.id]).first)
 
         // Save an edit: effective content changes, the file does not.
