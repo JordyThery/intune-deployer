@@ -1,0 +1,213 @@
+import Foundation
+import OSLog
+
+nonisolated enum AppUploadError: LocalizedError {
+    case stateTimeout(String)
+    case stateFailed(String)
+    case missingID(String)
+    case azure(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .stateTimeout(let step): "Timed out waiting for \(step)"
+        case .stateFailed(let state): "Intune reported upload state “\(state)”"
+        case .missingID(let step): "Graph returned no ID for the \(step)"
+        case .azure(let status): "Azure Storage upload failed with HTTP \(status)"
+        }
+    }
+}
+
+/// Executes the Graph mobile-app content upload flow (all endpoints verified
+/// against the beta docs; the Azure block mechanics against production
+/// open-source uploaders):
+///
+/// 1. POST contentVersions → content version id
+/// 2. POST files {name, size, sizeEncrypted, manifest: null, isDependency: false}
+/// 3. Poll file until azureStorageUriRequestSuccess
+/// 4. PUT 6 MiB blocks to the SAS URI, then the block list (renewUpload on expiry)
+/// 5. POST commit {fileEncryptionInfo}
+/// 6. Poll file until commitFileSuccess
+/// 7. PATCH app {committedContentVersion}, then wait for publishingState ==
+///    "published" (assign is rejected with 400 before that).
+nonisolated struct AppContentUploader: Sendable {
+    private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "AppUpload")
+    private static let blockSize = 6 * 1024 * 1024
+
+    let client: GraphClient
+    let appID: String
+    /// e.g. "#microsoft.graph.macOSPkgApp" — used for the final PATCH.
+    let appODataType: String
+
+    private var appPath: String { "deviceAppManagement/mobileApps/\(appID)" }
+
+    func upload(fileName: String, fileData: Data) async throws {
+        // 1. Content version (doc-sanctioned base-type cast).
+        let versionResponse = try await client.post(
+            "\(appPath)/microsoft.graph.mobileLobApp/contentVersions",
+            version: .beta,
+            body: try JSONSerialization.data(withJSONObject: ["@odata.type": "#microsoft.graph.mobileAppContent"])
+        )
+        let contentVersionID = try requireID(in: versionResponse, step: "content version")
+
+        // 2. Encrypt and register the content file.
+        let encrypted = try AppEncryptor.encrypt(fileData)
+        let filesPath = "\(appPath)/microsoft.graph.mobileLobApp/contentVersions/\(contentVersionID)/files"
+        let fileBody: [String: Any] = [
+            "@odata.type": "#microsoft.graph.mobileAppContentFile",
+            "name": fileName,
+            "size": fileData.count,
+            "sizeEncrypted": encrypted.encrypted.count,
+            "manifest": NSNull(),
+            "isDependency": false,
+        ]
+        let fileResponse = try await client.post(filesPath, version: .beta, body: try JSONSerialization.data(withJSONObject: fileBody))
+        let fileID = try requireID(in: fileResponse, step: "content file")
+        let filePath = "\(filesPath)/\(fileID)"
+
+        // 3. Wait for the Azure Storage SAS URI.
+        let storageURI = try await pollFile(
+            path: filePath,
+            until: "azureStorageUriRequestSuccess",
+            failures: ["azureStorageUriRequestFailed", "azureStorageUriRequestTimedOut", "error"],
+            attempts: 40,
+            extract: { $0["azureStorageUri"] as? String }
+        )
+
+        // 4. Chunked block upload + block list.
+        try await uploadBlocks(to: storageURI, data: encrypted.encrypted, renewPath: filePath)
+
+        // 5. Commit with the encryption info.
+        try await client.post(
+            "\(filePath)/commit",
+            version: .beta,
+            body: try JSONSerialization.data(withJSONObject: ["fileEncryptionInfo": encrypted.fileEncryptionInfoJSON])
+        )
+
+        // 6. Wait for the commit to process.
+        _ = try await pollFile(
+            path: filePath,
+            until: "commitFileSuccess",
+            failures: ["commitFileFailed", "commitFileTimedOut", "error"],
+            attempts: 60,
+            extract: { _ in "done" }
+        )
+
+        // 7. Point the app at the committed version and wait for publishing.
+        try await client.patch(
+            appPath,
+            version: .beta,
+            body: try JSONSerialization.data(withJSONObject: [
+                "@odata.type": appODataType,
+                "committedContentVersion": contentVersionID,
+            ])
+        )
+        try await waitUntilPublished()
+    }
+
+    // MARK: - Polling
+
+    private func pollFile(
+        path: String,
+        until successState: String,
+        failures: [String],
+        attempts: Int,
+        extract: ([String: Any]) -> String?
+    ) async throws -> String {
+        for _ in 0..<attempts {
+            let data = try await client.getRaw(path, version: .beta)
+            let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            let state = object["uploadState"] as? String ?? ""
+            if state == successState, let value = extract(object) {
+                return value
+            }
+            if failures.contains(state) {
+                throw AppUploadError.stateFailed(state)
+            }
+            try await Task.sleep(for: .seconds(5))
+        }
+        throw AppUploadError.stateTimeout(successState)
+    }
+
+    private func waitUntilPublished() async throws {
+        for _ in 0..<60 {
+            let data = try await client.getRaw("\(appPath)?$select=publishingState", version: .beta)
+            let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            if object["publishingState"] as? String == "published" {
+                return
+            }
+            try await Task.sleep(for: .seconds(5))
+        }
+        throw AppUploadError.stateTimeout("publishingState == published")
+    }
+
+    // MARK: - Azure Storage
+
+    private func uploadBlocks(to initialStorageURI: String, data: Data, renewPath: String) async throws {
+        let session = URLSession.shared
+        var storageURI = initialStorageURI
+        var blockIDs: [String] = []
+        var index = 0
+        var offset = 0
+        var lastRenewal = ContinuousClock.now
+
+        while offset < data.count {
+            // SAS URIs expire; renew proactively every ~7 minutes on long
+            // uploads and continue with the refreshed URI.
+            if ContinuousClock.now - lastRenewal > .seconds(420) {
+                try await client.post(renewPath + "/renewUpload", version: .beta, body: Data("{}".utf8))
+                storageURI = try await pollFile(
+                    path: renewPath,
+                    until: "azureStorageUriRenewalSuccess",
+                    failures: ["azureStorageUriRenewalFailed", "azureStorageUriRenewalTimedOut", "error"],
+                    attempts: 20,
+                    extract: { $0["azureStorageUri"] as? String }
+                )
+                lastRenewal = ContinuousClock.now
+            }
+
+            let end = min(offset + Self.blockSize, data.count)
+            let chunk = data.subdata(in: offset..<end)
+            let blockID = Data(String(format: "block-%04d", index).utf8).base64EncodedString()
+            blockIDs.append(blockID)
+
+            guard let encodedID = blockID.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+                  let url = URL(string: "\(storageURI)&comp=block&blockid=\(encodedID)") else {
+                throw AppUploadError.azure(-1)
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "PUT"
+            request.setValue("BlockBlob", forHTTPHeaderField: "x-ms-blob-type")
+            let (_, response) = try await session.upload(for: request, from: chunk)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw AppUploadError.azure((response as? HTTPURLResponse)?.statusCode ?? -1)
+            }
+
+            offset = end
+            index += 1
+        }
+
+        // Finalize the blob with the ordered block list.
+        let blockList = "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList>"
+            + blockIDs.map { "<Latest>\($0)</Latest>" }.joined()
+            + "</BlockList>"
+        guard let url = URL(string: "\(storageURI)&comp=blocklist") else {
+            throw AppUploadError.azure(-1)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        let (_, response) = try await session.upload(for: request, from: Data(blockList.utf8))
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw AppUploadError.azure((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        Self.logger.info("Uploaded \(blockIDs.count) block(s), \(data.count) bytes")
+    }
+
+    private func requireID(in response: Data, step: String) throws -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+              let id = object["id"] as? String else {
+            throw AppUploadError.missingID(step)
+        }
+        return id
+    }
+}
