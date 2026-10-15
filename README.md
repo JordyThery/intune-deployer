@@ -195,6 +195,10 @@ and release tag are shown with every item.
    bundle ID is part of the redirect URI your app registrations must use.
 3. Build and run (macOS 15+). Tests: ⌘U.
 
+## Support
+
+If Intune Deployer saves you time, you can [buy me a coffee](https://buymeacoffee.com/jordythery). ☕️
+
 ## License
 
 [MIT](LICENSE) — © 2026 Jordy Thery.
