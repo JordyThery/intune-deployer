@@ -6,3 +6,5 @@ xcuserdata/
 DerivedData/
 build/
 *.xcresult
+*.app
+*.app.zip
