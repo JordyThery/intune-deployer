@@ -7,6 +7,7 @@ struct IntuneDeployerApp: App {
     @State private var auth: AuthManager
     @State private var activityLog: ActivityLog
     @State private var session: TenantSession
+    @State private var updates = UpdateChecker()
 
     init() {
         let auth = AuthManager()
@@ -26,7 +27,14 @@ struct IntuneDeployerApp: App {
                 .environment(auth)
                 .environment(activityLog)
                 .environment(session)
+                .environment(updates)
                 .frame(minWidth: 900, minHeight: 560)
+                .task { await updates.checkAutomatically() }
+        }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updates.checkManually() }
+            }
         }
 
         Window("Activity Log", id: "activity-log") {

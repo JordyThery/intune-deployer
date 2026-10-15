@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(TenantStore.self) private var tenantStore
     @Environment(TenantSession.self) private var session
     @Environment(AuthManager.self) private var auth
+    @Environment(UpdateChecker.self) private var updates
 
     @State private var sidebarSelection: Set<SidebarSelection> = []
     @State private var selectedItemID: String?
@@ -71,6 +72,13 @@ struct ContentView: View {
             ToolbarItem {
                 accountButton
             }
+        }
+        .sheet(isPresented: Binding(
+            get: { updates.isPresented },
+            set: { updates.isPresented = $0 }
+        )) {
+            UpdateView()
+                .environment(updates)
         }
         .sheet(isPresented: $showingPlan) {
             if let profile = tenantStore.selectedProfile {

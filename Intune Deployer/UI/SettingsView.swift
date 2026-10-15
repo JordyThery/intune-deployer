@@ -5,9 +5,16 @@ import SwiftUI
 struct SettingsView: View {
     @State private var gitHubToken = ""
     @State private var tokenStatus: String?
+    // Same key UpdateChecker reads; unset means enabled.
+    @AppStorage("checksForUpdates") private var checksForUpdates = true
 
     var body: some View {
         Form {
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: $checksForUpdates)
+                    .help("Ask GitHub once a day whether a newer release exists. Nothing but the request itself is sent.")
+            }
+
             Section {
                 LabeledContent("Bundle ID") {
                     Text(AppRegistrationInfo.bundleID)

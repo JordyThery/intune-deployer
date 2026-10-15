@@ -30,6 +30,11 @@ Grab the signed and notarized app from the
 [latest release](https://github.com/JordyThery/intune-deployer/releases/latest),
 or build from source (see below).
 
+The app checks GitHub once a day for a newer release (turn this off in
+**Settings → Updates**, or check manually via **Intune Deployer → Check for
+Updates…**). Because the app is sandboxed it downloads the update for you to
+replace in Applications, rather than installing itself.
+
 ## Setup
 
 ### 1. Create an app registration (per tenant)
