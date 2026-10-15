@@ -149,7 +149,9 @@ assignment follow it, and an item's editor can override it or switch back to
 **Type default**. Select several items (⇧/⌘-click, ⌘A) to edit their
 assignments in one place or use the right-click menu; the list header
 checkbox and the **Selection** toolbar menu include or exclude everything
-currently shown. Assignments can carry an include/exclude assignment filter; a
+currently shown. Assignments can carry an include/exclude assignment filter
+(except on shell scripts and custom attributes — Intune does not support
+filters there, so the app hides the fields and plans them without one); a
 built-in macOS ADE filter template is available:
 `(device.enrollmentProfileName -eq "{{EnrollmentProfileName}}")`.
 The app warns when a dynamic device group is used — delivery of

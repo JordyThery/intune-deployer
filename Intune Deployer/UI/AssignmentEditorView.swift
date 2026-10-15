@@ -71,7 +71,10 @@ struct AssignmentEditorView: View {
                     }
                 }
 
-                if let editedMode, editedMode != .none {
+                // Shell scripts and custom attributes cannot carry assignment
+                // filters in Intune — hide the fields for them.
+                if let editedMode, editedMode != .none,
+                   items.contains(where: { $0.type.supportsAssignmentFilters }) {
                     HStack {
                         TextField("Filter name", text: binding(\.filterName),
                                   prompt: Text(mixedPrompt(\.filterName, fallback: "Assignment filter (optional)")))
@@ -92,6 +95,11 @@ struct AssignmentEditorView: View {
                         .fixedSize()
                         .help("The built-in ADE filter is created at apply time from: \(BuiltInFilterTemplate.rule)")
                         .accessibilityLabel("Filter templates")
+                    }
+                    if items.contains(where: { !$0.type.supportsAssignmentFilters }) {
+                        Text("Intune does not support filters on shell scripts or custom attributes — those items are assigned without the filter.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

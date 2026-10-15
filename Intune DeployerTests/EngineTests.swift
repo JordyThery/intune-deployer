@@ -390,6 +390,30 @@ struct PlanEngineTests {
         #expect(!plan.hasErrors)
     }
 
+    @Test func filtersAreStrippedFromTypesWithoutFilterSupport() {
+        // Shell scripts cannot carry assignment filters in Intune: the
+        // assignment survives, the filter is dropped with a warning.
+        var intent = AssignmentIntent()
+        intent.mode = .allDevices
+        intent.filterName = "Some Filter"
+        let (base, item) = scriptInput()
+        var profile = base.profile
+        profile.assignments = [item.id: intent]
+
+        let plan = PlanEngine.makePlan(input: PlanInput(
+            selectedItems: base.selectedItems,
+            profile: profile,
+            existingObjects: [:],
+            groups: [:],
+            knownSettingDefinitionIDs: nil
+        ))
+        let action = plan.actions.first
+        #expect(action?.assignment?.target == .allDevices)
+        #expect(action?.assignment?.filter == nil)
+        #expect(action?.warnings.contains { $0.contains("filters") } == true)
+        #expect(!plan.hasErrors)
+    }
+
     @Test func typeDefaultAssignmentAppliesWhenItemHasNoIntent() {
         var defaultIntent = AssignmentIntent()
         defaultIntent.mode = .allDevices
@@ -459,14 +483,21 @@ struct PlanEngineTests {
         var intent = AssignmentIntent()
         intent.mode = .allDevices
         intent.filterName = BuiltInFilterTemplate.name
-        let (base, item) = scriptInput()
-        var profile = base.profile
-        profile.assignments = [item.id: intent]
+        // Must be a type that supports assignment filters — on scripts the
+        // filter would be stripped with a warning instead.
+        let item = makeItem("sc/updates.json", type: .settingsCatalog)
+        var profile = TenantProfile(
+            displayName: "Test",
+            clientID: "e445f0a6-0000-0000-0000-000000000000",
+            tenantID: "t",
+            selectedItemIDs: [item.id],
+            assignments: [item.id: intent]
+        )
+        let selected = [PlanInput.SelectedItem(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8))]
 
         // Without EnrollmentProfileName → error.
-        profile.variables = ["OrgName": "Contoso"]
         let failing = PlanEngine.makePlan(input: PlanInput(
-            selectedItems: base.selectedItems, profile: profile,
+            selectedItems: selected, profile: profile,
             existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil
         ))
         #expect(failing.hasErrors)
@@ -474,7 +505,7 @@ struct PlanEngineTests {
         // With it → template filter scheduled for creation, rule substituted.
         profile.variables["EnrollmentProfileName"] = "Contoso ADE"
         let plan = PlanEngine.makePlan(input: PlanInput(
-            selectedItems: base.selectedItems, profile: profile,
+            selectedItems: selected, profile: profile,
             existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil
         ))
         #expect(!plan.hasErrors)

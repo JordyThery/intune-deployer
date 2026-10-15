@@ -115,7 +115,12 @@ nonisolated enum PlanEngine {
             }
 
             // Resolve the assignment intent (explicit, else per-type default).
-            let intent = input.profile.effectiveAssignment(for: item.id, type: item.type)
+            var intent = input.profile.effectiveAssignment(for: item.id, type: item.type)
+            if !item.type.supportsAssignmentFilters,
+               !intent.filterName.trimmingCharacters(in: .whitespaces).isEmpty {
+                warnings.append("Intune does not support assignment filters on \(item.type.displayName.lowercased())s — filter “\(intent.filterName)” is ignored")
+                intent.filterName = ""
+            }
             let assignment = resolveAssignment(
                 intent: intent,
                 itemName: built.displayName,

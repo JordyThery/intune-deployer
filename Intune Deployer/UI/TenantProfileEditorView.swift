@@ -150,15 +150,19 @@ struct TenantProfileEditorView: View {
                     TextField("Group name", text: defaultBinding(for: type, \.groupName),
                               prompt: Text("Static Entra security group"))
                 }
-                HStack {
-                    TextField("Filter name", text: defaultBinding(for: type, \.filterName),
-                              prompt: Text("Assignment filter (optional)"))
-                    Picker("Filter mode", selection: defaultBinding(for: type, \.filterMode)) {
-                        Text("Include").tag(AssignmentIntent.FilterMode.include)
-                        Text("Exclude").tag(AssignmentIntent.FilterMode.exclude)
+                // Intune has no assignment-filter support for scripts and
+                // custom attributes.
+                if type.supportsAssignmentFilters {
+                    HStack {
+                        TextField("Filter name", text: defaultBinding(for: type, \.filterName),
+                                  prompt: Text("Assignment filter (optional)"))
+                        Picker("Filter mode", selection: defaultBinding(for: type, \.filterMode)) {
+                            Text("Include").tag(AssignmentIntent.FilterMode.include)
+                            Text("Exclude").tag(AssignmentIntent.FilterMode.exclude)
+                        }
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    .labelsHidden()
-                    .fixedSize()
                 }
             }
         }

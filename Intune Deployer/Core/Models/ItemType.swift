@@ -23,6 +23,17 @@ nonisolated enum ItemType: String, Codable, CaseIterable, Sendable, Hashable {
         }
     }
 
+    /// Whether Intune supports assignment filters on this object type.
+    /// Shell scripts and custom attributes do not (see "Platforms and policy
+    /// types supported by assignment filters" on Microsoft Learn), and
+    /// assignment filters cannot themselves be assigned.
+    var supportsAssignmentFilters: Bool {
+        switch self {
+        case .shellScript, .customAttribute, .assignmentFilter: false
+        case .settingsCatalog, .customConfiguration, .compliancePolicy, .app: true
+        }
+    }
+
     /// SF Symbol used in lists and the detail header.
     var symbolName: String {
         switch self {
