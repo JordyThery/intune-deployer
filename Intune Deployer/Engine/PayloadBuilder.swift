@@ -185,7 +185,9 @@ nonisolated enum PayloadBuilder {
         try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
     }
 
-    private static func stripServerKeys(_ dict: [String: Any]) -> [String: Any] {
+    /// Also used by the tenant exporter, so exported files carry no keys the
+    /// deploy path would strip anyway.
+    static func stripServerKeys(_ dict: [String: Any]) -> [String: Any] {
         var result = dict.filter { !strippedKeys.contains($0.key) }
         // roleScopeTagIds: drop when unset/default so we don't fight the server.
         if let tags = result["roleScopeTagIds"] as? [String], tags.isEmpty || tags == ["0"] {
@@ -234,7 +236,12 @@ nonisolated enum PayloadBuilder {
     // MARK: - Custom configuration
 
     private static func buildCustomConfigFromMobileconfig(item: InferredItem, text: String, prefix: String, tag: String) throws -> Built {
-        let name = prefixed(item.displayName, prefix: prefix)
+        // The display name comes from PayloadDisplayName, read before
+        // substitution — take it from the substituted profile instead so
+        // `{{Token}}` placeholders never reach the Intune object name.
+        let plist = try? PropertyListSerialization.propertyList(from: Data(text.utf8), format: nil) as? [String: Any]
+        let baseName = (plist?["PayloadDisplayName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? item.displayName
+        let name = prefixed(baseName, prefix: prefix)
         let payload = Data(text.utf8).base64EncodedString()
         let dict: [String: Any] = [
             "@odata.type": "#microsoft.graph.macOSCustomConfiguration",

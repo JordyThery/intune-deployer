@@ -104,6 +104,9 @@ struct PayloadBuilderTests {
         let decoded = try #require(String(data: Data(base64Encoded: payload)!, encoding: .utf8))
         #expect(decoded.contains("Dock Settings Contoso"))
         #expect(!decoded.contains("{{OrgName}}"))
+        // The object name is substituted too, not taken from the raw file.
+        #expect(body["displayName"] as? String == "[LAB9] Dock Settings Contoso")
+        #expect(body["payloadName"] as? String == "[LAB9] Dock Settings Contoso")
     }
 
     @Test func complianceWithoutScheduledActionsGetsDefaultAndWarning() throws {

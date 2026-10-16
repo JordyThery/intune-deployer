@@ -182,6 +182,30 @@ before assignment. Bundle ID/version come from the package itself —
 The publisher field defaults to the app name; adjust it in Intune if needed.
 Re-uploads happen only when the bundle version or file name changes.
 
+## Exporting from a tenant
+
+Select a tenant profile in the sidebar to see its existing objects. Choose
+**Export All** in the toolbar, or select objects and choose **Export…** from
+the context menu, then pick a folder. Each object is saved in the format the
+app reads back, in one subfolder per type, so the folder can be added as a
+source directly:
+
+| Object | Exported as |
+| --- | --- |
+| Settings Catalog policy (macOS) | `.json` including its settings |
+| Compliance policy (macOS) | `.json` including scheduled actions |
+| Custom configuration profile (macOS) | The original `.mobileconfig` |
+| Assignment filter (macOS) | `.json` |
+| Shell script | `.sh` with an `# intune:` directive for its run options |
+| Custom attribute | `.sh` in a `CustomAttributes` folder |
+
+Exports are cleaned: read-only Graph fields, the identity tag and the tenant
+profile's naming prefix are removed, and assignments are not included. App
+packages and objects for other platforms are skipped, and existing files are
+never overwritten. Exported objects carry no identity tag, so deploying an
+export back into the **same** tenant creates new objects next to the
+originals — exports are meant for other tenants.
+
 ## Where to get baseline files
 
 The app ships with no baseline content. These community projects are optional

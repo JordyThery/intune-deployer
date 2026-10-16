@@ -89,7 +89,7 @@ struct TourStep {
                  text: "Plan (⌘P) is a dry run: it reads the tenant and shows creates, field-level update diffs, unchanged items, warnings and errors — nothing is written until you confirm Apply. Objects the app created but you no longer select are deleted only when explicitly ticked.",
                  pointsAtToolbar: true),
         TourStep(title: "7 · The tenant view",
-                 text: "Select a tenant profile in the sidebar for a read-only preflight checklist (MDM authority, Apple MDM push certificate, ADE tokens) and every object the app manages there. Objects carry an identity tag, so re-runs update instead of duplicating — anything without the tag is never touched.",
+                 text: "Select a tenant profile in the sidebar for a read-only preflight checklist (MDM authority, Apple MDM push certificate, ADE tokens) and the tenant's existing objects, which you can export as baseline files. Objects the app creates carry an identity tag, so re-runs update instead of duplicating — anything without the tag is never touched.",
                  anchor: .tenantProfiles),
         TourStep(title: "That's the tour",
                  text: "Start by adding a source and a tenant profile. The activity log (⌘⇧L) records every Graph request, and an as-built report can be exported after each Apply. Replay this tour any time from Help › Guided Tour."),

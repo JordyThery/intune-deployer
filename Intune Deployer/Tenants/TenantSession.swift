@@ -24,6 +24,9 @@ final class TenantSession {
     var applyResults: [ApplyResult]?
     var isApplying = false
 
+    // Export state (managed by TenantSession+Export).
+    var isExporting = false
+
     /// Incremented by reset(); long-running loads compare it before writing
     /// results so a tenant switch discards stale data.
     var generation = 0

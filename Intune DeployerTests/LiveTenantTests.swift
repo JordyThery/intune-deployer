@@ -56,6 +56,44 @@ struct LiveTenantTests {
         // variables in the user's files) are allowed and reported above.
     }
 
+    // MARK: - Read-only: export real tenant objects and read them back
+
+    @Test func exportFromTenantRescansAsItems() async throws {
+        let auth = AuthManager()
+        guard let profile = signedInProfile(auth: auth) else { return }
+
+        let session = TenantSession(auth: auth, activityLog: ActivityLog())
+        await session.loadInventory(for: profile)
+        #expect(session.inventoryErrors.isEmpty, "inventory errors: \(session.inventoryErrors)")
+
+        // Up to three objects per exportable type keeps the run short.
+        let selection = TenantExporter.exportableCollections.flatMap { collection in
+            (session.inventory[collection] ?? []).prefix(3).map {
+                ExportSelection(collection: collection, objectID: $0.id, name: $0.resolvedName)
+            }
+        }
+        guard !selection.isEmpty else {
+            print("LiveTenantTests: tenant has no exportable objects")
+            return
+        }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appending(path: "live-export-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let summary = await session.export(selection, profile: profile, to: folder)
+        print("Live export: \(summary.written.count) written, \(summary.skipped.count) skipped")
+        for skipped in summary.skipped { print("  skipped \(skipped.name): \(skipped.reason)") }
+
+        // Every written file must be recognised again — nothing lands in Skipped.
+        let scan = try InferenceEngine.scan(root: folder, sourceID: UUID())
+        #expect(scan.items.count == summary.written.count)
+        #expect(scan.skipped.isEmpty, "unreadable exports: \(scan.skipped)")
+        // Fetch failures (as opposed to unsupported objects) are bugs.
+        #expect(!summary.skipped.contains { $0.reason.localizedCaseInsensitiveContains("http") })
+    }
+
     /// Deletes every tagged object named "[AUTOTEST]…" — leftovers from
     /// interrupted runs must never accumulate in the tenant.
     private func sweepAutotestObjects(client: GraphClient) async throws -> Int {
