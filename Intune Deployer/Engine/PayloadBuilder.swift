@@ -102,11 +102,11 @@ nonisolated enum PayloadBuilder {
         case .customAttribute:
             return try buildCustomAttribute(item: item, text: text, prefix: namingPrefix, tag: tag)
         case .app:
-            throw PayloadError.unsupportedItem("macOS apps are handled before substitution")
+            throw PayloadError.unsupportedItem("App packages are handled before substitution")
         }
     }
 
-    // MARK: - macOS apps (.pkg / .dmg)
+    // MARK: - Apps (.pkg / .dmg / .ipa)
 
     /// Graph body for macOSPkgApp / macOSDmgApp / iosLobApp (all beta).
     /// Content upload runs separately at apply time; this is the metadata

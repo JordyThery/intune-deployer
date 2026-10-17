@@ -289,6 +289,11 @@ final class SourceStore {
         // Edits cleared here were byte-identical to the file, and edits for
         // deleted files have no item — the scan result stays consistent.
         edits.reconcile(sourceID: sourceID, originalContents: originals, consideredPaths: considered)
+        platformOverrides.reconcile(
+            sourceID: sourceID,
+            validPaths: Set(result.items.map(\.relativePath)),
+            consideredPaths: Set(platforms.keys)
+        )
         scanResults[sourceID] = result
         Self.logger.info("Scanned \(source.name, privacy: .public): \(result.items.count) items, \(result.skipped.count) skipped")
     }

@@ -77,8 +77,8 @@ struct ItemListView: View {
         }
         .focused($listFocused)
         .onAppear { listFocused = true }
-        // Highlighted rows hidden by search, the type filter, or a source
-        // switch must not keep driving bulk actions and the detail column.
+        // Highlighted rows hidden by search, a filter, or a source switch
+        // must not keep driving bulk actions and the detail column.
         .onChange(of: items.map(\.id)) { _, visibleIDs in
             selectedItemIDs.formIntersection(visibleIDs)
         }
@@ -113,7 +113,7 @@ struct ItemListView: View {
                 } label: {
                     Label("Selection", systemImage: "checklist")
                 }
-                .help("Include or exclude every item currently shown (respects search and type filter)")
+                .help("Include or exclude every item currently shown (respects the search and filters)")
                 .disabled(tenantStore.selectedProfile == nil || items.isEmpty)
             }
             ToolbarItem {
@@ -268,8 +268,11 @@ private struct ItemRow: View {
                 Text(item.displayName)
                 HStack(spacing: 6) {
                     Text(item.type.displayName)
-                    Text("·")
-                    Text(item.platform.displayName)
+                    // macOS is the default; only the exception needs a label.
+                    if item.platform != .macOS {
+                        Text("·")
+                        Text(item.platform.displayName)
+                    }
                     Text("·")
                     Text(sourceName)
                 }

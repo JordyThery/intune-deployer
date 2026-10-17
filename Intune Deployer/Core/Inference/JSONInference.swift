@@ -105,17 +105,16 @@ nonisolated enum JSONInference {
     /// Platform from a Settings Catalog `platforms` value; a missing value
     /// defaults to macOS (the payload builder fills it in with a warning).
     private static func settingsCatalogPlatform(_ dict: [String: Any]) -> ItemPlatform? {
-        guard let platforms = (dict["platforms"] as? String)?.lowercased(), !platforms.isEmpty else { return .macOS }
-        if platforms.contains("macos") { return .macOS }
-        if platforms.contains("ios") { return .iOSiPadOS }
-        return nil
+        let value = dict["platforms"] as? String
+        guard let value, !value.isEmpty else { return .macOS }
+        return ItemPlatform.fromPlatforms(value)
     }
 
-    /// Platform from an assignment filter `platform` value (devicePlatformType).
+    /// Platform from an assignment filter `platform` value; a missing value
+    /// defaults to macOS (the payload builder fills it in with a warning).
     private static func filterPlatform(_ dict: [String: Any]) -> ItemPlatform? {
-        guard let platform = (dict["platform"] as? String)?.lowercased(), !platform.isEmpty else { return .macOS }
-        if platform == "macos" { return .macOS }
-        if platform == "ios" { return .iOSiPadOS }
-        return nil
+        let value = dict["platform"] as? String
+        guard let value, !value.isEmpty else { return .macOS }
+        return ItemPlatform.fromFilterValue(value)
     }
 }

@@ -177,7 +177,7 @@ struct TenantInventoryView: View {
     }
 
     private func summaryMessage(_ summary: ExportSummary) -> String {
-        var text = "Saved to \(summary.folder.lastPathComponent), one folder per type."
+        var text = "Saved to \(summary.folder.lastPathComponent), grouped by platform and type."
         if !summary.skipped.isEmpty {
             let shown = summary.skipped.prefix(8).map { "• \($0.name): \($0.reason)" }
             text += "\n\n\(summary.skipped.count) skipped:\n" + shown.joined(separator: "\n")

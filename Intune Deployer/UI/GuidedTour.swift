@@ -80,7 +80,7 @@ struct TourStep {
                  text: "Pick the active tenant in the toolbar and sign in with an account that has Intune permissions there. Microsoft Graph permissions are delegated and requested incrementally — reading at sign-in, writing at first Apply.",
                  pointsAtToolbar: true),
         TourStep(title: "4 · Choose items",
-                 text: "The checkboxes decide what is deployed to the active tenant; highlighting rows is separate. Use ⇧/⌘-click or ⌘A to work on many items at once, the header checkbox or the Selection menu to include or exclude everything shown, and search or the type filter to narrow the list.",
+                 text: "The checkboxes decide what is deployed to the active tenant; highlighting rows is separate. Use ⇧/⌘-click or ⌘A to work on many items at once, the header checkbox or the Selection menu to include or exclude everything shown, and search or the type and platform filters to narrow the list.",
                  anchor: .items),
         TourStep(title: "5 · Item details",
                  text: "The detail column shows what was detected and why, the variables a file uses, a preview, and the item's assignment — all devices, all users, or a group, with an optional filter. “Type default” follows the tenant profile; selecting several items edits them all at once.",

@@ -209,11 +209,14 @@ nonisolated enum InferenceEngine {
         }
     }
 
-    /// True when the path starts with the tenant export layout's iOS folder.
-    /// This is the only path-based platform rule: no baseline repository uses
-    /// this exact top-level name, so existing sources are unaffected.
+    /// True when the path contains the tenant export layout's iOS folder, so
+    /// exports keep their platform even when a subtree is added as the
+    /// source. This is the only path-based platform rule: no baseline
+    /// repository uses this exact folder name, so existing sources are
+    /// unaffected.
     static func pathIsInIOSExportFolder(_ relativePath: String) -> Bool {
-        relativePath.split(separator: "/").first?.lowercased() == "ios and ipados"
+        let folderName = ItemPlatform.iOSiPadOS.exportFolderName.lowercased()
+        return relativePath.split(separator: "/").dropLast().contains { $0.lowercased() == folderName }
     }
 
     /// True if any folder in the relative path looks like a custom-attribute

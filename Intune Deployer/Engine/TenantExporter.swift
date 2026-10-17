@@ -31,7 +31,7 @@ nonisolated enum TenantExporter {
     /// "iOS and iPadOS" root marks re-imported profiles as iOS, and custom
     /// attributes must live in a folder whose name marks them as such.
     static func folder(for collection: TenantCollection, platform: ItemPlatform) -> String {
-        let root = platform == .macOS ? "macOS" : "iOS and iPadOS"
+        let root = platform.exportFolderName
         let type: String = switch collection {
         case .settingsCatalog: "Settings Catalog"
         case .deviceConfigurations: "Configuration Profiles"
@@ -111,28 +111,19 @@ nonisolated enum TenantExporter {
     }
 
     // MARK: - Platform detection
+    // Unlike import (which defaults missing values to macOS), export skips
+    // objects whose platform cannot be determined.
 
     private static func applePlatform(settingsCatalog platforms: String?) -> ItemPlatform? {
-        guard let platforms = platforms?.lowercased() else { return nil }
-        if platforms.contains("macos") { return .macOS }
-        if platforms.contains("ios") { return .iOSiPadOS }
-        return nil
+        ItemPlatform.fromPlatforms(platforms)
     }
 
     private static func applePlatform(filter platform: String?) -> ItemPlatform? {
-        switch platform?.lowercased() {
-        case "macos": .macOS
-        case "ios": .iOSiPadOS
-        default: nil
-        }
+        ItemPlatform.fromFilterValue(platform)
     }
 
-    /// Platform from an @odata.type such as "…macoscompliancepolicy"
-    /// (lowercased input, e.g. suffix "compliancepolicy").
     private static func applePlatform(odataType: String, suffix: String) -> ItemPlatform? {
-        if odataType.contains("macos\(suffix)") { return .macOS }
-        if odataType.contains("ios\(suffix)") { return .iOSiPadOS }
-        return nil
+        ItemPlatform.fromODataType(odataType, suffix: suffix)
     }
 
     // MARK: - Cleaning

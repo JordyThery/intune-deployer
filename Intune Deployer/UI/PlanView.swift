@@ -320,7 +320,11 @@ private struct PlanActionRow: View {
         case .allUsers: base = "All users"
         case .group(_, let name): base = name
         }
-        return assignment.filter == nil ? base : "\(base) + filter"
+        var label = assignment.filter == nil ? base : "\(base) + filter"
+        if assignment.appIntent == .available {
+            label += ", available"
+        }
+        return label
     }
 }
 

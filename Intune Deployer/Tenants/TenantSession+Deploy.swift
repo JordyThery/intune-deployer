@@ -342,9 +342,10 @@ extension TenantSession {
                     }
                     try await update(action: action, objectID: objectID, client: client)
                     report("Update \(action.displayName)", .success)
-                    // A changed bundle version or file means new binary content.
+                    // A changed bundle version, file or provisioning expiry
+                    // (an .ipa re-signed in place) means new binary content.
                     if action.collection == .apps,
-                       changes.contains(where: { ["primaryBundleVersion", "versionNumber", "buildNumber", "fileName"].contains($0.path) }) {
+                       changes.contains(where: { ["primaryBundleVersion", "versionNumber", "buildNumber", "fileName", "expirationDateTime"].contains($0.path) }) {
                         do {
                             try await uploadAppContent(action: action, appID: objectID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)

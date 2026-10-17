@@ -85,6 +85,29 @@ struct PlatformDetectionTests {
         #expect(byPath["iOS and iPadOS/Configuration Profiles/forced-mac.mobileconfig"] == .macOS)
     }
 
+    @Test @MainActor func staleOverridesAreDroppedWhenTheFileDisappears() throws {
+        let store = PlatformOverrideStore(storageURL: try tempDir().appending(path: "overrides.json"))
+        let item = makeItem("Profiles/vpn.mobileconfig", type: .customConfiguration)
+        store.set(.iOSiPadOS, for: item)
+        // File still present → kept.
+        store.reconcile(sourceID: sourceID, validPaths: ["Profiles/vpn.mobileconfig"], consideredPaths: ["Profiles/vpn.mobileconfig"])
+        #expect(store.overrides(forSource: sourceID).count == 1)
+        // File gone → dropped (a later file at the same path starts fresh).
+        store.reconcile(sourceID: sourceID, validPaths: [], consideredPaths: ["Profiles/vpn.mobileconfig"])
+        #expect(store.overrides(forSource: sourceID).isEmpty)
+        // Overrides outside a stale scan's snapshot are never touched.
+        store.set(.iOSiPadOS, for: item)
+        store.reconcile(sourceID: sourceID, validPaths: [], consideredPaths: [])
+        #expect(store.overrides(forSource: sourceID).count == 1)
+    }
+
+    @Test func exportFolderRuleMatchesNestedPaths() {
+        #expect(InferenceEngine.pathIsInIOSExportFolder("iOS and iPadOS/Compliance/p.json"))
+        #expect(InferenceEngine.pathIsInIOSExportFolder("Exports/iOS and iPadOS/Compliance/p.json"))
+        #expect(!InferenceEngine.pathIsInIOSExportFolder("Compliance/p.json"))
+        #expect(!InferenceEngine.pathIsInIOSExportFolder("iOS and iPadOS.json"))
+    }
+
     @Test func ipaFilesAreIOSApps() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -326,6 +349,43 @@ struct PlatformPlanTests {
         ))
         #expect(!result.hasErrors)
         #expect(result.actions.first?.assignment?.appIntent == .available)
+    }
+
+    @Test func platformChangeBecomesCreatePlusOrphan() throws {
+        // Graph cannot retype an object: an item that used to deploy as
+        // macOSCustomConfiguration and is now iOS must plan as a create,
+        // with the old object offered as an orphan.
+        let item = makeItem("p.mobileconfig", type: .customConfiguration, platform: .iOSiPadOS)
+        let deployedAsMac = try PayloadBuilder.build(
+            item: makeItem("p.mobileconfig", type: .customConfiguration, platform: .macOS),
+            fileData: Data(Fixtures.mobileconfig.utf8),
+            namingPrefix: "",
+            variables: ["OrgName": "Contoso"]
+        )
+        let remote = RemoteObject(
+            id: "obj-1",
+            displayName: deployedAsMac.displayName,
+            description: "x [IntuneDeployer:\(item.id)]",
+            body: deployedAsMac.body
+        )
+        let result = PlanEngine.makePlan(input: PlanInput(
+            selectedItems: [.init(item: item, fileData: Data(Fixtures.mobileconfig.utf8))],
+            profile: makeProfile(item, variables: ["OrgName": "Contoso"]),
+            existingObjects: [.deviceConfigurations: [remote]],
+            groups: [:],
+            knownSettingDefinitionIDs: nil
+        ))
+        #expect(result.actions.first?.kind == .create)
+        #expect(result.orphans.map(\.objectID) == ["obj-1"])
+    }
+
+    @Test func equalInstantsInDifferentISOFormatsAreNotChanges() throws {
+        let desired = Data(#"{"expirationDateTime":"2027-06-05T12:34:56Z"}"#.utf8)
+        let remote = Data(#"{"expirationDateTime":"2027-06-05T12:34:56.0000000Z","id":"x"}"#.utf8)
+        #expect(try GraphDiff.changes(desired: desired, remote: remote).isEmpty)
+
+        let changed = Data(#"{"expirationDateTime":"2028-01-01T00:00:00Z","id":"x"}"#.utf8)
+        #expect(try GraphDiff.changes(desired: desired, remote: changed).count == 1)
     }
 
     @Test func intentsFromEarlierBuildsDecodeAsRequired() throws {

@@ -21,6 +21,43 @@ nonisolated enum ItemPlatform: String, Codable, Sendable, CaseIterable, Hashable
         case .iOSiPadOS: "iOS"
         }
     }
+
+    /// Tenant export folder name per platform; the iOS name doubles as the
+    /// path rule that marks re-imported profiles as iOS/iPadOS.
+    var exportFolderName: String {
+        switch self {
+        case .macOS: "macOS"
+        case .iOSiPadOS: "iOS and iPadOS"
+        }
+    }
+
+    // MARK: - Shared Graph value parsing (callers decide the fallback)
+
+    /// From a Settings Catalog `platforms` value, e.g. "macOS" or "iOS".
+    static func fromPlatforms(_ value: String?) -> ItemPlatform? {
+        guard let value = value?.lowercased(), !value.isEmpty else { return nil }
+        if value.contains("macos") { return .macOS }
+        if value.contains("ios") { return .iOSiPadOS }
+        return nil
+    }
+
+    /// From an assignment filter `platform` value (devicePlatformType).
+    static func fromFilterValue(_ value: String?) -> ItemPlatform? {
+        switch value?.lowercased() {
+        case "macos": .macOS
+        case "ios": .iOSiPadOS
+        default: nil
+        }
+    }
+
+    /// From an `@odata.type` such as "#microsoft.graph.macosCompliancePolicy"
+    /// (case-insensitive; `suffix` e.g. "compliancepolicy").
+    static func fromODataType(_ odataType: String, suffix: String) -> ItemPlatform? {
+        let lower = odataType.lowercased()
+        if lower.contains("macos\(suffix)") { return .macOS }
+        if lower.contains("ios\(suffix)") { return .iOSiPadOS }
+        return nil
+    }
 }
 
 /// The kinds of Intune objects this app can infer from plain files.
@@ -31,7 +68,7 @@ nonisolated enum ItemType: String, Codable, CaseIterable, Sendable, Hashable {
     case assignmentFilter
     case shellScript
     case customAttribute
-    /// macOS app packages (.pkg / .dmg).
+    /// App packages: .pkg/.dmg (macOS) and .ipa (iOS/iPadOS).
     case app
 
     var displayName: String {

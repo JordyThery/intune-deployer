@@ -85,11 +85,7 @@ struct AssignmentEditorView: View {
                         .labelsHidden()
                         .fixedSize()
                         Menu {
-                            ForEach(templatePlatforms, id: \.self) { platform in
-                                Button("Use built-in template: \(BuiltInFilterTemplate.name(for: platform))") {
-                                    update { $0.filterName = BuiltInFilterTemplate.name(for: platform) }
-                                }
-                            }
+                            Button("Use Built-in ADE Filter Template") { applyTemplateFilter() }
                         } label: {
                             Image(systemName: "sparkles")
                         }
@@ -128,10 +124,17 @@ struct AssignmentEditorView: View {
         }
     }
 
-    /// Template platforms offered: those of the edited items (filters can
-    /// only attach to matching platforms).
-    private var templatePlatforms: [ItemPlatform] {
-        ItemPlatform.allCases.filter { platform in items.contains { $0.platform == platform } }
+    /// Each item gets the ADE template for its own platform, so a
+    /// mixed-platform selection stays valid.
+    private func applyTemplateFilter() {
+        mutateProfile { current in
+            for item in items where item.type.supportsAssignmentFilters {
+                var intent = current.assignments[item.id]
+                    ?? current.effectiveAssignment(for: item.id, type: item.type)
+                intent.filterName = BuiltInFilterTemplate.name(for: item.platform)
+                current.assignments[item.id] = intent
+            }
+        }
     }
 
     private var bindingValueIsAvailable: Bool {

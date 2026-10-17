@@ -101,6 +101,9 @@ nonisolated enum PlanEngine {
         }
 
         let existingFilters = input.existingObjects[.assignmentFilters] ?? []
+        // Tenant objects matched by a selected item; everything else that
+        // carries our tag is an orphan.
+        var matchedObjectIDs: Set<String> = []
 
         for (selected, built) in builtPayloads {
             var warnings = built.warnings
@@ -143,13 +146,24 @@ nonisolated enum PlanEngine {
                 warnings: &warnings
             )
 
-            // Match tenant object by identity tag.
+            // Match tenant object by identity tag AND Graph type: Graph
+            // cannot retype an object, so a platform change (e.g.
+            // macOSCustomConfiguration → iosCustomConfiguration) must become
+            // a create, with the old object orphaned.
+            let desiredType = Self.odataType(of: built.body)
             let matches = (input.existingObjects[built.collection] ?? [])
                 .filter { $0.taggedShortID == item.id }
+                .filter { candidate in
+                    guard let desiredType, let remoteType = Self.odataType(of: candidate.body) else { return true }
+                    return desiredType == remoteType
+                }
             if matches.count > 1 {
                 warnings.append("Multiple tenant objects carry this item's identity tag (was one duplicated in the portal?) — only “\(matches[0].displayName)” is managed")
             }
             let existing = matches.first
+            if let existing {
+                matchedObjectIDs.insert(existing.id)
+            }
 
             let kind: PlanActionKind
             if let existing {
@@ -189,16 +203,12 @@ nonisolated enum PlanEngine {
             .map { PlannedFilterCreation(name: $0.key, rule: $0.value.rule, platform: $0.value.platform) }
             .sorted { $0.name < $1.name }
 
-        // Orphans: objects tagged by us whose item is no longer selected, or
-        // whose item now deploys to a different collection (type change).
-        // Objects without our tag are never considered.
-        let selectedCollections = Dictionary(
-            builtPayloads.map { ($0.0.item.id, $0.1.collection) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // Orphans: objects tagged by us that no selected item matched — the
+        // item was deselected, deploys to another collection, or changed its
+        // Graph type (platform change). Untagged objects are never considered.
         for (collection, objects) in input.existingObjects {
             for object in objects {
-                if let shortID = object.taggedShortID, selectedCollections[shortID] != collection {
+                if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id) {
                     plan.orphans.append(OrphanedObject(
                         collection: collection,
                         objectID: object.id,
@@ -307,7 +317,7 @@ nonisolated enum PlanEngine {
                 issues.append(PlanIssue(
                     severity: .error,
                     itemName: itemName,
-                    message: "Filter “\(filterName)” targets \(filterPlatformValue) and cannot be used on a \(itemPlatform.displayName) item"
+                    message: "Filter “\(filterName)” targets \(filterPlatformValue) devices and cannot be assigned to \(itemPlatform.displayName) items"
                 ))
                 return false
             }
@@ -353,6 +363,13 @@ nonisolated enum PlanEngine {
     private static func filterPlatformValue(of filter: RemoteObject) -> String? {
         let dict = try? JSONSerialization.jsonObject(with: filter.body) as? [String: Any]
         return dict?["platform"] as? String
+    }
+
+    /// Lowercased @odata.type of a JSON body, nil when it declares none
+    /// (Settings Catalog policies and assignment filters).
+    private static func odataType(of body: Data) -> String? {
+        let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+        return (dict?["@odata.type"] as? String)?.lowercased()
     }
 
     // MARK: - Settings Catalog validation

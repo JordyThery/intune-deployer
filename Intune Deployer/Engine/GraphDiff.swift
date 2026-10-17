@@ -97,7 +97,20 @@ nonisolated enum GraphDiff {
     }
 
     private static func valuesEqual(_ a: Any, _ b: Any) -> Bool {
-        canonical(a) == canonical(b)
+        if canonical(a) == canonical(b) { return true }
+        // Graph may echo dates with fractional seconds or an offset; equal
+        // instants must not read as changes (e.g. expirationDateTime).
+        if let dateA = isoDate(a), let dateB = isoDate(b) {
+            return dateA == dateB
+        }
+        return false
+    }
+
+    private static func isoDate(_ value: Any) -> Date? {
+        guard let text = value as? String, text.count >= 16, text.contains("T") else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 
     /// Canonical scalar representation; distinguishes booleans from numbers.

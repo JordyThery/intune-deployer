@@ -44,6 +44,8 @@ nonisolated enum AppInspectionError: LocalizedError {
 ///   (Apple Distribution XML Reference / flat package format).
 /// - .dmg: mounted read-only via hdiutil; the first .app bundle's Info.plist
 ///   provides CFBundleIdentifier + CFBundleShortVersionString.
+/// - .ipa: a zip; Payload/<App>.app/Info.plist provides the bundle metadata
+///   and embedded.mobileprovision the provisioning expiry.
 ///
 /// Callers must pass a file INSIDE our sandbox container (copy it first) so
 /// the spawned helper tools can read it.
@@ -199,6 +201,9 @@ nonisolated enum AppPackageInspector {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
         try run("/usr/bin/ditto", ["-x", "-k", url.path, workDir.path])
+        // Archives can contain symlinks with arbitrary targets; reads below
+        // must never follow one outside the work directory.
+        removeSymlinks(in: workDir)
 
         let payload = workDir.appending(path: "Payload")
         let entries = (try? FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? []
@@ -231,6 +236,22 @@ nonisolated enum AppPackageInspector {
         result.provisioningExpiration = (try? Data(contentsOf: appBundle.appending(path: "embedded.mobileprovision")))
             .flatMap(provisioningExpiration(in:))
         return result
+    }
+
+    /// Deletes any symlinks an extracted archive contained (same precaution
+    /// as for downloaded repositories).
+    private static func removeSymlinks(in directory: URL) {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: []
+        ) else { return }
+        for case let url as URL in enumerator {
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+                try? FileManager.default.removeItem(at: url)
+                enumerator.skipDescendants()
+            }
+        }
     }
 
     /// ExpirationDate from a provisioning profile: the profile is a signed

@@ -70,7 +70,7 @@ nonisolated struct AssignmentIntent: Codable, Hashable, Sendable {
             text += filterMode == .include ? ", filter “\(filterName)”" : ", excluding filter “\(filterName)”"
         }
         if mode != .none, appIntent == .available {
-            text += ", available"
+            text += ", available in Company Portal"
         }
         return text
     }

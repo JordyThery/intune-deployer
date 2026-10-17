@@ -30,10 +30,6 @@ final class PlatformOverrideStore {
         load()
     }
 
-    func platform(for itemID: String) -> ItemPlatform? {
-        overrides[itemID]?.platform
-    }
-
     /// Platform overrides per relative path for one source — applied by the
     /// inference scan.
     func overrides(forSource sourceID: UUID) -> [String: ItemPlatform] {
@@ -55,6 +51,20 @@ final class PlatformOverrideStore {
             platform: platform
         )
         persist()
+    }
+
+    /// Drops overrides whose file no longer exists in the source, so a file
+    /// later created at the same path cannot inherit a stale platform.
+    /// `consideredPaths` is the scan's override snapshot (a stale scan must
+    /// not touch overrides saved while it ran).
+    func reconcile(sourceID: UUID, validPaths: Set<String>, consideredPaths: Set<String>) {
+        let before = overrides.count
+        overrides = overrides.filter { _, override in
+            override.sourceID != sourceID
+                || !consideredPaths.contains(override.relativePath)
+                || validPaths.contains(override.relativePath)
+        }
+        if overrides.count != before { persist() }
     }
 
     /// Drops every override of a removed source.
