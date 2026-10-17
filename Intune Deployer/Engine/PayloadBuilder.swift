@@ -108,11 +108,15 @@ nonisolated enum PayloadBuilder {
 
     // MARK: - macOS apps (.pkg / .dmg)
 
-    /// Graph body for macOSPkgApp (beta) / macOSDmgApp. Content upload runs
-    /// separately at apply time; this is the metadata object.
+    /// Graph body for macOSPkgApp / macOSDmgApp / iosLobApp (all beta).
+    /// Content upload runs separately at apply time; this is the metadata
+    /// object.
     static func buildApp(item: InferredItem, appInfo: AppPackageInfo?, prefix: String, tag: String) throws -> Built {
         guard let appInfo else {
             throw PayloadError.unsupportedItem("Could not read bundle ID/version from \(item.fileURL.lastPathComponent)")
+        }
+        if item.fileURL.pathExtension.lowercased() == "ipa" {
+            return try buildIOSApp(item: item, appInfo: appInfo, prefix: prefix, tag: tag)
         }
         let isPkg = item.fileURL.pathExtension.lowercased() == "pkg"
         let name = prefixed(item.displayName, prefix: prefix)
@@ -149,6 +153,63 @@ nonisolated enum PayloadBuilder {
             ] as [String: Any],
         ]
         return Built(collection: .apps, displayName: name, body: try encode(dict), warnings: warnings)
+    }
+
+    /// Graph body for iosLobApp (beta). Intune expects the provisioning
+    /// profile's expiration date; an unsigned .ipa cannot be deployed.
+    static func buildIOSApp(item: InferredItem, appInfo: AppPackageInfo, prefix: String, tag: String) throws -> Built {
+        guard let expiration = appInfo.provisioningExpiration else {
+            throw PayloadError.unsupportedItem("\(item.fileURL.lastPathComponent) has no embedded provisioning profile — only signed .ipa files can be deployed")
+        }
+        let name = prefixed(item.displayName, prefix: prefix)
+        var warnings = ["Publisher defaults to the app name — edit it in Intune if needed"]
+        if expiration < .now {
+            throw PayloadError.unsupportedItem("The provisioning profile in \(item.fileURL.lastPathComponent) expired on \(expiration.formatted(date: .abbreviated, time: .omitted)) — re-sign the app first")
+        }
+        if expiration < .now.addingTimeInterval(30 * 86_400) {
+            warnings.append("The provisioning profile expires on \(expiration.formatted(date: .abbreviated, time: .omitted))")
+        }
+
+        let dict: [String: Any] = [
+            "@odata.type": "#microsoft.graph.iosLobApp",
+            "displayName": name,
+            "description": taggedDescription(nil, tag: tag),
+            "publisher": item.displayName,
+            "fileName": item.fileURL.lastPathComponent,
+            "bundleId": appInfo.primaryBundleID,
+            "versionNumber": appInfo.primaryBundleVersion,
+            "buildNumber": appInfo.buildNumber ?? appInfo.primaryBundleVersion,
+            "expirationDateTime": Self.iso8601UTC(expiration),
+            "applicableDeviceType": [
+                "@odata.type": "microsoft.graph.iosDeviceType",
+                "iPhoneAndIPod": appInfo.supportsIPhone ?? true,
+                "iPad": appInfo.supportsIPad ?? true,
+            ] as [String: Any],
+            "minimumSupportedOperatingSystem": [
+                "@odata.type": "microsoft.graph.iosMinimumOperatingSystem",
+                Self.iosMinimumOSKey(for: appInfo.minimumOSVersion): true,
+            ] as [String: Any],
+        ]
+        return Built(collection: .apps, displayName: name, body: try encode(dict), warnings: warnings)
+    }
+
+    /// The iosMinimumOperatingSystem boolean for a MinimumOSVersion value.
+    /// Graph defines v8_0 through v18_0 and v26_0 (exactly one must be true);
+    /// versions in between are rounded down to a defined key.
+    static func iosMinimumOSKey(for version: String?) -> String {
+        guard let major = version?.split(separator: ".").first.flatMap({ Int($0) }) else {
+            return "v9_0" // Microsoft's sample default when unknown.
+        }
+        switch major {
+        case ..<8: return "v8_0"
+        case 8...18: return "v\(major)_0"
+        case 19...25: return "v18_0"
+        default: return "v26_0"
+        }
+    }
+
+    nonisolated private static func iso8601UTC(_ date: Date) -> String {
+        date.ISO8601Format() // e.g. 2027-10-17T09:30:00Z
     }
 
     // MARK: - Shared helpers
@@ -244,7 +305,9 @@ nonisolated enum PayloadBuilder {
         let name = prefixed(baseName, prefix: prefix)
         let payload = Data(text.utf8).base64EncodedString()
         let dict: [String: Any] = [
-            "@odata.type": "#microsoft.graph.macOSCustomConfiguration",
+            "@odata.type": item.platform == .iOSiPadOS
+                ? "#microsoft.graph.iosCustomConfiguration"
+                : "#microsoft.graph.macOSCustomConfiguration",
             "displayName": name,
             "description": taggedDescription(nil, tag: tag),
             "payloadName": name,
@@ -258,7 +321,9 @@ nonisolated enum PayloadBuilder {
         var dict = stripServerKeys(try parseJSONObject(text, itemName: item.displayName))
         var warnings: [String] = []
 
-        dict["@odata.type"] = "#microsoft.graph.macOSCustomConfiguration"
+        dict["@odata.type"] = item.platform == .iOSiPadOS
+            ? "#microsoft.graph.iosCustomConfiguration"
+            : "#microsoft.graph.macOSCustomConfiguration"
         let baseName = (dict["displayName"] as? String) ?? item.displayName
         dict["displayName"] = prefixed(baseName, prefix: prefix)
         dict["description"] = taggedDescription(dict["description"] as? String, tag: tag)
@@ -281,7 +346,9 @@ nonisolated enum PayloadBuilder {
         var dict = stripServerKeys(try parseJSONObject(text, itemName: item.displayName))
         var warnings: [String] = []
 
-        dict["@odata.type"] = "#microsoft.graph.macOSCompliancePolicy"
+        dict["@odata.type"] = item.platform == .iOSiPadOS
+            ? "#microsoft.graph.iosCompliancePolicy"
+            : "#microsoft.graph.macOSCompliancePolicy"
         let baseName = (dict["displayName"] as? String) ?? item.displayName
         dict["displayName"] = prefixed(baseName, prefix: prefix)
         dict["description"] = taggedDescription(dict["description"] as? String, tag: tag)

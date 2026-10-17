@@ -33,10 +33,30 @@ nonisolated struct AppContentUploader: Sendable {
     private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "AppUpload")
     private static let blockSize = 6 * 1024 * 1024
 
+    /// The OTA-install-style manifest an iosLobApp content file is registered
+    /// with. The template (placeholders included) matches Microsoft's LOB
+    /// upload sample; the service fills in the URL and ignores the literal
+    /// subtitle. TODO(verify): the plist content is sample practice, not
+    /// documented on the mobileAppContentFile page.
+    static func iosManifest(bundleID: String, bundleVersion: String, title: String) -> Data {
+        func xmlEscaped(_ text: String) -> String {
+            text.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+        }
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>{UrlPlaceHolder}</string></dict></array><key>metadata</key><dict><key>AppRestrictionPolicyTemplate</key> <string>http://management.microsoft.com/PolicyTemplates/AppRestrictions/iOS/v1</string><key>AppRestrictionTechnology</key><string>Windows Intune Application Restrictions Technology for iOS</string><key>IntuneMAMVersion</key><string></string><key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array><key>MinimumOSVersion</key><string>9.0</string><key>bundle-identifier</key><string>\(xmlEscaped(bundleID))</string><key>bundle-version</key><string>\(xmlEscaped(bundleVersion))</string><key>kind</key><string>software</string><key>subtitle</key><string>LaunchMeSubtitle</string><key>title</key><string>\(xmlEscaped(title))</string></dict></dict></array></dict></plist>
+        """
+        return Data(xml.utf8)
+    }
+
     let client: GraphClient
     let appID: String
     /// e.g. "#microsoft.graph.macOSPkgApp" — used for the final PATCH.
     let appODataType: String
+    /// iOS uploads register the content file with an OTA-style manifest
+    /// plist; macOS uploads send none.
+    var manifest: Data?
 
     private var appPath: String { "deviceAppManagement/mobileApps/\(appID)" }
 
@@ -57,7 +77,7 @@ nonisolated struct AppContentUploader: Sendable {
             "name": fileName,
             "size": fileData.count,
             "sizeEncrypted": encrypted.encrypted.count,
-            "manifest": NSNull(),
+            "manifest": manifest.map { $0.base64EncodedString() as Any } ?? NSNull(),
             "isDependency": false,
         ]
         let fileResponse = try await client.post(filesPath, version: .beta, body: try JSONSerialization.data(withJSONObject: fileBody))

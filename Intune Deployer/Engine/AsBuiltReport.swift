@@ -172,6 +172,9 @@ nonisolated enum AsBuiltReport {
             }
             text += " with \(assignment.filterMode.rawValue) filter \(name)"
         }
+        if assignment.appIntent == .available {
+            text += " (available in Company Portal)"
+        }
         return text
     }
 

@@ -117,7 +117,7 @@ struct TenantExportTests {
         #expect(dict["id"] == nil && dict["@odata.context"] == nil && dict["createdDateTime"] == nil && dict["assignments"] == nil)
         let rules = try #require(dict["scheduledActionsForRule"] as? [[String: Any]])
         #expect(rules.first?["id"] == nil)
-        #expect(file.folder == "Compliance")
+        #expect(file.folder == "macOS/Compliance")
         #expect(file.baseName == "Encryption")
 
         // The placeholder description written for empty ones disappears.
@@ -137,7 +137,7 @@ struct TenantExportTests {
         #expect(skipped(.deviceConfigurations, ##"{"@odata.type":"#microsoft.graph.macOSGeneralDeviceConfiguration","displayName":"General"}"##))
         #expect(skipped(.settingsCatalog, #"{"name":"Win","platforms":"windows10","technologies":"mdm","settings":[]}"#))
         #expect(skipped(.settingsCatalog, #"{"name":"No settings fetched","platforms":"macOS","technologies":"mdm"}"#))
-        #expect(skipped(.assignmentFilters, #"{"displayName":"iOS","platform":"iOS","rule":"x"}"#))
+        #expect(skipped(.assignmentFilters, #"{"displayName":"Win","platform":"windows10AndLater","rule":"x"}"#))
         #expect(skipped(.shellScripts, #"{"displayName":"Empty"}"#))
         #expect(skipped(.apps, #"{"displayName":"Some.pkg"}"#))
     }

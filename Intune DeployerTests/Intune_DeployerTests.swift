@@ -71,7 +71,7 @@ struct InferenceEngineTests {
         #expect(!skippedPaths.contains("apps/Installer.pkg"))
 
         let windowsReason = result.skipped.first { $0.relativePath == "Compliance/windows.json" }?.reason ?? ""
-        #expect(windowsReason.contains("non-macOS"))
+        #expect(windowsReason.contains("unsupported platform"))
         #expect(result.skipped.allSatisfy { !$0.reason.isEmpty })
     }
 

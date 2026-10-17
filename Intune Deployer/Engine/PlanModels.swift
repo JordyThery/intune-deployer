@@ -52,6 +52,7 @@ nonisolated struct PlannedFilterCreation: Sendable, Identifiable, Hashable {
     let name: String
     /// Rule with variables already substituted.
     let rule: String
+    let platform: ItemPlatform
 }
 
 /// A tenant object carrying our identity tag whose item is no longer selected.

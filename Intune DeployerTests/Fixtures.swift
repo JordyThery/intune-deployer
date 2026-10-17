@@ -96,6 +96,63 @@ enum Fixtures {
     }
     """
 
+    static let iosComplianceJSON = """
+    {
+      "@odata.type": "#microsoft.graph.iosCompliancePolicy",
+      "displayName": "iOS - Compliance - Passcode",
+      "passcodeRequired": true,
+      "scheduledActionsForRule": [
+        {
+          "ruleName": "PasswordRequired",
+          "scheduledActionConfigurations": [
+            { "actionType": "block", "gracePeriodHours": 24 }
+          ]
+        }
+      ]
+    }
+    """
+
+    static let iosSettingsCatalogJSON = """
+    {
+      "name": "iOS - Restrictions",
+      "description": "Baseline iOS restrictions",
+      "platforms": "iOS",
+      "technologies": "mdm",
+      "settings": [
+        {
+          "@odata.type": "#microsoft.graph.deviceManagementConfigurationSetting",
+          "settingInstance": {
+            "@odata.type": "#microsoft.graph.deviceManagementConfigurationGroupSettingCollectionInstance",
+            "settingDefinitionId": "com.apple.applicationaccess_com.apple.applicationaccess",
+            "groupSettingCollectionValue": [
+              {
+                "children": [
+                  {
+                    "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+                    "settingDefinitionId": "com.apple.applicationaccess_allowcamera",
+                    "choiceSettingValue": {
+                      "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingValue",
+                      "value": "com.apple.applicationaccess_allowcamera_false",
+                      "children": []
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+    """
+
+    static let iosFilterJSON = """
+    {
+      "displayName": "iOS - ADE Enrolled",
+      "platform": "iOS",
+      "rule": "(device.enrollmentProfileName -eq \\"{{EnrollmentProfileName}}\\")"
+    }
+    """
+
     static let windowsComplianceJSON = """
     {
       "@odata.type": "#microsoft.graph.windows10CompliancePolicy",

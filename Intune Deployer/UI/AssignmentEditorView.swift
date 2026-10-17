@@ -85,8 +85,10 @@ struct AssignmentEditorView: View {
                         .labelsHidden()
                         .fixedSize()
                         Menu {
-                            Button("Use built-in template: \(BuiltInFilterTemplate.name)") {
-                                update { $0.filterName = BuiltInFilterTemplate.name }
+                            ForEach(templatePlatforms, id: \.self) { platform in
+                                Button("Use built-in template: \(BuiltInFilterTemplate.name(for: platform))") {
+                                    update { $0.filterName = BuiltInFilterTemplate.name(for: platform) }
+                                }
                             }
                         } label: {
                             Image(systemName: "sparkles")
@@ -102,9 +104,38 @@ struct AssignmentEditorView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                // Install intent only exists for apps.
+                if let editedMode, editedMode != .none, items.contains(where: { $0.type == .app }) {
+                    Picker("Install intent", selection: binding(\.appIntent)) {
+                        ForEach(AssignmentIntent.AppIntent.allCases, id: \.self) { intent in
+                            Text(intent.displayName).tag(intent)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    if items.contains(where: { $0.type != .app }) {
+                        Text("The install intent applies to the app items only.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if bindingValueIsAvailable {
+                        Text("Available apps are offered in Company Portal and need a user assignment (All users or a user group).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Template platforms offered: those of the edited items (filters can
+    /// only attach to matching platforms).
+    private var templatePlatforms: [ItemPlatform] {
+        ItemPlatform.allCases.filter { platform in items.contains { $0.platform == platform } }
+    }
+
+    private var bindingValueIsAvailable: Bool {
+        commonValue(\.appIntent) == .available
     }
 
     // MARK: - Type default hint

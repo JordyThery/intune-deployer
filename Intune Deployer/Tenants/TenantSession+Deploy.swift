@@ -222,7 +222,7 @@ extension TenantSession {
         // uses a platform filter; try that first, fall back to an unfiltered
         // paged fetch, and skip validation when both fail.
         let filtered = "deviceManagement/configurationSettings?$select=id&$top=1000"
-            + "&$filter=platforms has 'macOS' and technologies has 'mdm'"
+            + "&$filter=(platforms has 'macOS' or platforms has 'iOS') and technologies has 'mdm'"
         if let ids = try? await client.list(SettingDefinition.self, filtered, version: .beta) {
             return Set(ids.map(\.id))
         }
@@ -292,7 +292,7 @@ extension TenantSession {
                     "@odata.type": "#microsoft.graph.deviceAndAppManagementAssignmentFilter",
                     "displayName": filter.name,
                     "description": "Created by Intune Deployer (built-in template)",
-                    "platform": "macOS",
+                    "platform": filter.platform.filterPlatformValue,
                     "rule": filter.rule,
                 ]
                 let response = try await client.post(
@@ -344,7 +344,7 @@ extension TenantSession {
                     report("Update \(action.displayName)", .success)
                     // A changed bundle version or file means new binary content.
                     if action.collection == .apps,
-                       changes.contains(where: { $0.path == "primaryBundleVersion" || $0.path == "fileName" }) {
+                       changes.contains(where: { ["primaryBundleVersion", "versionNumber", "buildNumber", "fileName"].contains($0.path) }) {
                         do {
                             try await uploadAppContent(action: action, appID: objectID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)
@@ -409,9 +409,16 @@ extension TenantSession {
             throw PayloadError.unsupportedItem("App file is no longer available")
         }
         let fileData = try sourceStore.fileContents(of: item)
-        let odataType = (try? JSONSerialization.jsonObject(with: action.payload) as? [String: Any])?["@odata.type"] as? String
-            ?? "#microsoft.graph.macOSPkgApp"
-        let uploader = AppContentUploader(client: client, appID: appID, appODataType: odataType)
+        let payload = (try? JSONSerialization.jsonObject(with: action.payload) as? [String: Any]) ?? [:]
+        let odataType = payload["@odata.type"] as? String ?? "#microsoft.graph.macOSPkgApp"
+        var uploader = AppContentUploader(client: client, appID: appID, appODataType: odataType)
+        if odataType == "#microsoft.graph.iosLobApp" {
+            uploader.manifest = AppContentUploader.iosManifest(
+                bundleID: payload["bundleId"] as? String ?? "",
+                bundleVersion: payload["versionNumber"] as? String ?? "",
+                title: payload["displayName"] as? String ?? item.displayName
+            )
+        }
         try await uploader.upload(fileName: item.fileURL.lastPathComponent, fileData: fileData)
     }
 
@@ -502,7 +509,7 @@ extension TenantSession {
             parameterName = "mobileAppAssignments"
             entries = [[
                 "@odata.type": "#microsoft.graph.mobileAppAssignment",
-                "intent": "required",
+                "intent": assignment.appIntent.rawValue,
                 "target": target,
             ]]
         default:

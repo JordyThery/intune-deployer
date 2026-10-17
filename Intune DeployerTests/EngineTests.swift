@@ -491,7 +491,7 @@ struct PlanEngineTests {
     @Test func builtInFilterTemplateNeedsItsVariable() {
         var intent = AssignmentIntent()
         intent.mode = .allDevices
-        intent.filterName = BuiltInFilterTemplate.name
+        intent.filterName = BuiltInFilterTemplate.name(for: .macOS)
         // Must be a type that supports assignment filters — on scripts the
         // filter would be stripped with a warning instead.
         let item = makeItem("sc/updates.json", type: .settingsCatalog)

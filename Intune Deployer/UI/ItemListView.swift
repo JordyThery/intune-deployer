@@ -10,6 +10,7 @@ struct ItemListView: View {
     @Binding var selectedItemIDs: Set<String>
     @Binding var searchText: String
     @Binding var typeFilter: ItemType?
+    @Binding var platformFilter: ItemPlatform?
 
     @FocusState private var listFocused: Bool
 
@@ -17,6 +18,9 @@ struct ItemListView: View {
         var items = store.items(for: selectedSourceIDs)
         if let typeFilter {
             items = items.filter { $0.type == typeFilter }
+        }
+        if let platformFilter {
+            items = items.filter { $0.platform == platformFilter }
         }
         if !searchText.isEmpty {
             items = items.filter {
@@ -123,12 +127,20 @@ struct ItemListView: View {
                         }
                     }
                     .pickerStyle(.inline)
+                    Picker("Platform", selection: $platformFilter) {
+                        Text("All Platforms").tag(ItemPlatform?.none)
+                        Divider()
+                        ForEach(ItemPlatform.allCases, id: \.self) { platform in
+                            Text(platform.displayName).tag(ItemPlatform?.some(platform))
+                        }
+                    }
+                    .pickerStyle(.inline)
                 } label: {
-                    Label("Filter", systemImage: typeFilter == nil
+                    Label("Filter", systemImage: typeFilter == nil && platformFilter == nil
                         ? "line.3.horizontal.decrease.circle"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
-                .help("Filter items by type")
+                .help("Filter items by type and platform")
             }
         }
     }
@@ -256,6 +268,8 @@ private struct ItemRow: View {
                 Text(item.displayName)
                 HStack(spacing: 6) {
                     Text(item.type.displayName)
+                    Text("·")
+                    Text(item.platform.displayName)
                     Text("·")
                     Text(sourceName)
                 }

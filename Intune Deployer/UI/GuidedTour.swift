@@ -69,9 +69,9 @@ struct TourStep {
 
     static let all: [TourStep] = [
         TourStep(title: "Welcome to Intune Deployer",
-                 text: "This app deploys macOS configuration to Microsoft Intune from plain files — no manifests, no PowerShell. This tour walks through the workflow; nothing is read or written while it runs."),
+                 text: "This app deploys macOS and iOS/iPadOS configuration to Microsoft Intune from plain files — no manifests, no PowerShell. This tour walks through the workflow; nothing is read or written while it runs."),
         TourStep(title: "1 · Sources",
-                 text: "Add a local folder or a GitHub repository here. Sources are scanned recursively: Settings Catalog JSON, .mobileconfig profiles, compliance policies, shell scripts, custom attributes, assignment filters and .pkg/.dmg apps become items; everything else is listed under Skipped with a reason.",
+                 text: "Add a local folder or a GitHub repository here. Sources are scanned recursively: Settings Catalog JSON, .mobileconfig profiles, compliance policies, shell scripts, custom attributes, assignment filters and app packages (.pkg, .dmg, .ipa) become items; everything else is listed under Skipped with a reason.",
                  anchor: .sources),
         TourStep(title: "2 · Tenant profiles",
                  text: "Each Entra tenant gets a profile with its own app registration (client ID and tenant ID — see the README for the one-time setup), a naming prefix, variable values and default assignments per item type. Item selection and assignments are stored per profile.",

@@ -7,8 +7,14 @@ nonisolated enum InferenceEngine {
     /// `sourceID` feeds the stable item identity. Hidden files (including the
     /// app-managed .baseline.json) and bundle contents are skipped.
     /// `overrides` maps relative paths to in-app edited content, classified
-    /// instead of the file on disk.
-    static func scan(root: URL, sourceID: UUID, overrides: [String: Data] = [:]) throws -> ScanResult {
+    /// instead of the file on disk; `platformOverrides` maps relative paths
+    /// to the user's platform choice for `.mobileconfig` profiles.
+    static func scan(
+        root: URL,
+        sourceID: UUID,
+        overrides: [String: Data] = [:],
+        platformOverrides: [String: ItemPlatform] = [:]
+    ) throws -> ScanResult {
         let fileManager = FileManager.default
         var result = ScanResult()
 
@@ -30,7 +36,13 @@ nonisolated enum InferenceEngine {
         let rootPath = root.standardizedFileURL.path
         for url in fileURLs.sorted(by: { $0.path < $1.path }) {
             let relativePath = relativePath(of: url, underRootPath: rootPath)
-            switch classify(url: url, relativePath: relativePath, sourceID: sourceID, overrideData: overrides[relativePath]) {
+            switch classify(
+                url: url,
+                relativePath: relativePath,
+                sourceID: sourceID,
+                overrideData: overrides[relativePath],
+                platformOverride: platformOverrides[relativePath]
+            ) {
             case .item(let item):
                 result.items.append(item)
             case .skip(let reason):
@@ -49,7 +61,7 @@ nonisolated enum InferenceEngine {
     /// Classifies in-memory content as if it were the file at `url` — used to
     /// validate in-app edits without touching the file.
     static func classify(data: Data, url: URL, relativePath: String, sourceID: UUID) -> Classification {
-        classify(url: url, relativePath: relativePath, sourceID: sourceID, overrideData: data)
+        classify(url: url, relativePath: relativePath, sourceID: sourceID, overrideData: data, platformOverride: nil)
     }
 
     private static func relativePath(of url: URL, underRootPath rootPath: String) -> String {
@@ -58,7 +70,13 @@ nonisolated enum InferenceEngine {
         return String(String(path.dropFirst(rootPath.count)).trimmingPrefix("/"))
     }
 
-    private static func classify(url: URL, relativePath: String, sourceID: UUID, overrideData: Data? = nil) -> Classification {
+    private static func classify(
+        url: URL,
+        relativePath: String,
+        sourceID: UUID,
+        overrideData: Data? = nil,
+        platformOverride: ItemPlatform? = nil
+    ) -> Classification {
         let ext = url.pathExtension.lowercased()
         let baseName = url.deletingPathExtension().lastPathComponent
         // In-app edits replace the file content for classification.
@@ -68,6 +86,7 @@ nonisolated enum InferenceEngine {
 
         func makeItem(
             type: ItemType,
+            platform: ItemPlatform = .macOS,
             displayName: String?,
             reason: String,
             tokens: [String] = [],
@@ -80,6 +99,7 @@ nonisolated enum InferenceEngine {
                 relativePath: relativePath,
                 fileURL: url,
                 type: type,
+                platform: platform,
                 displayName: displayName.flatMap { $0.isEmpty ? nil : $0 } ?? baseName,
                 detectionReason: reason,
                 tokens: tokens,
@@ -98,6 +118,7 @@ nonisolated enum InferenceEngine {
                 let text = String(data: data, encoding: .utf8) ?? ""
                 return makeItem(
                     type: detection.type,
+                    platform: detection.platform,
                     displayName: detection.displayName,
                     reason: detection.reason,
                     tokens: TokenScanner.tokens(in: text)
@@ -112,8 +133,14 @@ nonisolated enum InferenceEngine {
             }
             switch MobileConfigInference.classify(data: data) {
             case .item(let detection):
+                // A profile cannot state its platform: the per-item override
+                // wins, then the export layout's top-level platform folder,
+                // then the macOS default.
+                let platform = platformOverride
+                    ?? (pathIsInIOSExportFolder(relativePath) ? .iOSiPadOS : .macOS)
                 return makeItem(
                     type: .customConfiguration,
+                    platform: platform,
                     displayName: detection.displayName,
                     reason: detection.reason,
                     tokens: TokenScanner.tokens(in: detection.scannableText ?? "")
@@ -166,12 +193,27 @@ nonisolated enum InferenceEngine {
                 reason: "macOS app package (.\(ext)) — bundle details are read at plan time"
             )
 
+        case "ipa":
+            return makeItem(
+                type: .app,
+                platform: .iOSiPadOS,
+                displayName: baseName,
+                reason: "iOS app package (.ipa) — bundle details are read at plan time"
+            )
+
         case "xml":
             return .skip(reason: "XML manifests from other tools are ignored")
 
         default:
             return .skip(reason: ext.isEmpty ? "Unsupported file (no extension)" : "Unsupported file type (.\(ext))")
         }
+    }
+
+    /// True when the path starts with the tenant export layout's iOS folder.
+    /// This is the only path-based platform rule: no baseline repository uses
+    /// this exact top-level name, so existing sources are unaffected.
+    static func pathIsInIOSExportFolder(_ relativePath: String) -> Bool {
+        relativePath.split(separator: "/").first?.lowercased() == "ios and ipados"
     }
 
     /// True if any folder in the relative path looks like a custom-attribute

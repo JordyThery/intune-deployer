@@ -20,6 +20,8 @@ final class SourceStore {
     /// In-app content overrides; items read through `fileContents(of:)` and
     /// the scan overlay see edited content instead of the file.
     let edits: ItemEditStore
+    /// Per-item platform choices for `.mobileconfig` profiles.
+    let platformOverrides: PlatformOverrideStore
 
     private let storageURL: URL
     private let cacheRoot: URL
@@ -28,12 +30,13 @@ final class SourceStore {
     /// newer one (e.g. the rescan after saving an item edit).
     private var scanGenerations: [UUID: Int] = [:]
 
-    init(storageURL: URL? = nil, editStore: ItemEditStore? = nil) {
+    init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Intune Deployer", isDirectory: true)
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
         self.edits = editStore ?? ItemEditStore()
+        self.platformOverrides = platformStore ?? PlatformOverrideStore()
         load()
     }
 
@@ -81,6 +84,7 @@ final class SourceStore {
         scanErrors[id] = nil
         availableUpdates[id] = nil
         edits.removeAll(forSource: id)
+        platformOverrides.removeAll(forSource: id)
         try? FileManager.default.removeItem(at: cacheDirectory(for: id))
         save()
     }
@@ -262,8 +266,9 @@ final class SourceStore {
         let generation = (scanGenerations[sourceID] ?? 0) + 1
         scanGenerations[sourceID] = generation
         let overrides = edits.overrides(forSource: sourceID)
+        let platforms = platformOverrides.overrides(forSource: sourceID)
         let (result, originals, considered) = try await Task.detached(priority: .userInitiated) {
-            let result = try InferenceEngine.scan(root: root, sourceID: sourceID, overrides: overrides)
+            let result = try InferenceEngine.scan(root: root, sourceID: sourceID, overrides: overrides, platformOverrides: platforms)
             // Current on-disk content of every edited file, for reconciliation.
             // A file that exists but momentarily fails to read is taken out of
             // consideration so a transient error cannot delete the edit.

@@ -76,7 +76,7 @@ nonisolated enum TenantCollection: String, CaseIterable, Sendable, Identifiable 
         case .shellScripts: "Shell Scripts"
         case .customAttributes: "Custom Attributes"
         case .assignmentFilters: "Assignment Filters"
-        case .apps: "macOS Apps"
+        case .apps: "Apps"
         }
     }
 
@@ -92,9 +92,10 @@ nonisolated enum TenantCollection: String, CaseIterable, Sendable, Identifiable 
         }
     }
 
-    /// The managed macOS app types within the mixed mobileApps collection.
+    /// The managed app types within the mixed mobileApps collection.
     static let managedAppODataTypes: Set<String> = [
         "#microsoft.graph.macOSPkgApp",
         "#microsoft.graph.macOSDmgApp",
+        "#microsoft.graph.iosLobApp",
     ]
 }

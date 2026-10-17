@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var selectedItemIDs: Set<String> = []
     @State private var searchText = ""
     @State private var typeFilter: ItemType?
+    @State private var platformFilter: ItemPlatform?
     @State private var authErrorMessage: String?
     @State private var showingPlan = false
 
@@ -28,7 +29,8 @@ struct ContentView: View {
                     selectedSourceIDs: selectedSourceIDs,
                     selectedItemIDs: $selectedItemIDs,
                     searchText: $searchText,
-                    typeFilter: $typeFilter
+                    typeFilter: $typeFilter,
+                    platformFilter: $platformFilter
                 )
                 .navigationSplitViewColumnWidth(min: 300, ideal: 380)
                 .tourAnchor(.items)

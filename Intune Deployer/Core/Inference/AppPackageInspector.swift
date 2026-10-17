@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-/// Bundle metadata read from a .pkg or .dmg, used to build the Intune app.
+/// Bundle metadata read from a .pkg, .dmg or .ipa, used to build the Intune app.
 nonisolated struct AppPackageInfo: Sendable, Hashable {
     struct IncludedApp: Sendable, Hashable {
         let bundleID: String
@@ -11,6 +11,18 @@ nonisolated struct AppPackageInfo: Sendable, Hashable {
     var primaryBundleID: String
     var primaryBundleVersion: String
     var includedApps: [IncludedApp]
+
+    // iOS (.ipa) fields; nil for macOS packages.
+    /// CFBundleVersion (the build number).
+    var buildNumber: String?
+    /// MinimumOSVersion from the app's Info.plist.
+    var minimumOSVersion: String?
+    /// UIDeviceFamily: 1 = iPhone/iPod, 2 = iPad.
+    var supportsIPhone: Bool?
+    var supportsIPad: Bool?
+    /// ExpirationDate of the embedded provisioning profile; Intune requires
+    /// it, and nil means the .ipa is unsigned.
+    var provisioningExpiration: Date?
 }
 
 nonisolated enum AppInspectionError: LocalizedError {
@@ -44,6 +56,8 @@ nonisolated enum AppPackageInspector {
             return try inspectPkg(at: url)
         case "dmg":
             return try inspectDmg(at: url)
+        case "ipa":
+            return try inspectIpa(at: url)
         default:
             throw AppInspectionError.noMetadata("Unsupported package type .\(url.pathExtension)")
         }
@@ -173,6 +187,64 @@ nonisolated enum AppPackageInspector {
             ?? "1.0"
         let app = AppPackageInfo.IncludedApp(bundleID: bundleID, bundleVersion: version)
         return AppPackageInfo(primaryBundleID: bundleID, primaryBundleVersion: version, includedApps: [app])
+    }
+
+    // MARK: - .ipa (zip)
+
+    /// An .ipa is a zip with `Payload/<Name>.app/`; the app's Info.plist
+    /// carries the bundle metadata and `embedded.mobileprovision` the
+    /// provisioning profile (a CMS blob with a readable plist inside).
+    private static func inspectIpa(at url: URL) throws -> AppPackageInfo {
+        let workDir = url.deletingLastPathComponent().appending(path: "ipa-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+        try run("/usr/bin/ditto", ["-x", "-k", url.path, workDir.path])
+
+        let payload = workDir.appending(path: "Payload")
+        let entries = (try? FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? []
+        guard let appBundle = entries.first(where: {
+            $0.pathExtension == "app"
+                && (try? $0.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true
+        }) else {
+            throw AppInspectionError.noMetadata("The .ipa contains no Payload/<App>.app bundle")
+        }
+
+        // iOS bundles keep Info.plist at the bundle root (no Contents/).
+        guard let data = try? Data(contentsOf: appBundle.appending(path: "Info.plist")),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let bundleID = info["CFBundleIdentifier"] as? String else {
+            throw AppInspectionError.noMetadata("Could not read \(appBundle.lastPathComponent)'s Info.plist")
+        }
+        let buildNumber = info["CFBundleVersion"] as? String
+        let version = (info["CFBundleShortVersionString"] as? String) ?? buildNumber ?? "1.0"
+        let deviceFamilies = (info["UIDeviceFamily"] as? [Int]) ?? [1, 2]
+
+        var result = AppPackageInfo(
+            primaryBundleID: bundleID,
+            primaryBundleVersion: version,
+            includedApps: [AppPackageInfo.IncludedApp(bundleID: bundleID, bundleVersion: version)]
+        )
+        result.buildNumber = buildNumber
+        result.minimumOSVersion = info["MinimumOSVersion"] as? String
+        result.supportsIPhone = deviceFamilies.contains(1)
+        result.supportsIPad = deviceFamilies.contains(2)
+        result.provisioningExpiration = (try? Data(contentsOf: appBundle.appending(path: "embedded.mobileprovision")))
+            .flatMap(provisioningExpiration(in:))
+        return result
+    }
+
+    /// ExpirationDate from a provisioning profile: the profile is a signed
+    /// CMS blob, so the plist is located by its XML markers.
+    static func provisioningExpiration(in data: Data) -> Date? {
+        guard let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex) else {
+            return nil
+        }
+        let plistData = data[start.lowerBound..<end.upperBound]
+        guard let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] else {
+            return nil
+        }
+        return plist["ExpirationDate"] as? Date
     }
 
     // MARK: - Helpers

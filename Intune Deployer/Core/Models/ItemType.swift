@@ -1,5 +1,28 @@
 import Foundation
 
+/// The device platform an item targets. JSON files state their own platform;
+/// `.mobileconfig` profiles default to macOS (overridable per item), `.ipa`
+/// packages are always iOS/iPadOS, and everything else is macOS.
+nonisolated enum ItemPlatform: String, Codable, Sendable, CaseIterable, Hashable {
+    case macOS
+    case iOSiPadOS
+
+    var displayName: String {
+        switch self {
+        case .macOS: "macOS"
+        case .iOSiPadOS: "iOS/iPadOS"
+        }
+    }
+
+    /// The devicePlatformType value assignment filters use.
+    var filterPlatformValue: String {
+        switch self {
+        case .macOS: "macOS"
+        case .iOSiPadOS: "iOS"
+        }
+    }
+}
+
 /// The kinds of Intune objects this app can infer from plain files.
 nonisolated enum ItemType: String, Codable, CaseIterable, Sendable, Hashable {
     case settingsCatalog
@@ -19,7 +42,7 @@ nonisolated enum ItemType: String, Codable, CaseIterable, Sendable, Hashable {
         case .assignmentFilter: "Assignment Filter"
         case .shellScript: "Shell Script"
         case .customAttribute: "Custom Attribute"
-        case .app: "macOS App"
+        case .app: "App"
         }
     }
 

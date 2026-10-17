@@ -32,6 +32,7 @@ nonisolated struct InferredItem: Identifiable, Sendable, Hashable {
     let relativePath: String
     let fileURL: URL
     let type: ItemType
+    let platform: ItemPlatform
     let displayName: String
     /// Human-readable explanation of why this type was detected.
     let detectionReason: String
@@ -48,6 +49,7 @@ nonisolated struct InferredItem: Identifiable, Sendable, Hashable {
         relativePath: String,
         fileURL: URL,
         type: ItemType,
+        platform: ItemPlatform = .macOS,
         displayName: String,
         detectionReason: String,
         tokens: [String] = [],
@@ -59,6 +61,7 @@ nonisolated struct InferredItem: Identifiable, Sendable, Hashable {
         self.relativePath = relativePath
         self.fileURL = fileURL
         self.type = type
+        self.platform = platform
         self.displayName = displayName
         self.detectionReason = detectionReason
         self.tokens = tokens

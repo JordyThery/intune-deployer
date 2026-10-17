@@ -1,12 +1,13 @@
 # Intune Deployer
 
-An open source macOS app that deploys macOS configuration to Microsoft Intune.
+An open source macOS app that deploys macOS and iOS/iPadOS configuration to
+Microsoft Intune.
 
 Point it at one or more folders (or GitHub repositories) of plain configuration
 files — Settings Catalog JSON, `.mobileconfig` profiles, compliance policies,
-shell scripts, custom attributes, assignment filters — pick what you want,
-review a dry-run plan, and apply it to an Entra tenant through Microsoft Graph.
-No manifests, no PowerShell.
+shell scripts, custom attributes, assignment filters, app packages — pick what
+you want, review a dry-run plan, and apply it to an Entra tenant through
+Microsoft Graph. No manifests, no PowerShell.
 
 - **Dry-run by default.** Nothing is written to a tenant without an explicit
   Apply with a confirmation summary.
@@ -72,11 +73,11 @@ can do is the intersection of these scopes and the user's Intune RBAC role).
 | `DeviceManagementConfiguration.Read.All` | Reading profiles, compliance, filters, Settings Catalog | Sign-in |
 | `DeviceManagementScripts.Read.All` | Reading shell scripts and custom attributes | Sign-in |
 | `DeviceManagementServiceConfig.Read.All` | Preflight: MDM authority, APNs certificate, ADE tokens | Sign-in |
-| `DeviceManagementApps.Read.All` | Reading macOS apps | Sign-in |
+| `DeviceManagementApps.Read.All` | Reading apps | Sign-in |
 | `Group.Read.All` | Resolving assignment group names | First Plan |
 | `DeviceManagementConfiguration.ReadWrite.All` | Creating/updating profiles, compliance, filters | First Apply |
 | `DeviceManagementScripts.ReadWrite.All` | Creating/updating scripts and custom attributes | First Apply |
-| `DeviceManagementApps.ReadWrite.All` | Creating/updating macOS apps and uploading content | First Apply |
+| `DeviceManagementApps.ReadWrite.All` | Creating/updating apps and uploading content | First Apply |
 | `Group.ReadWrite.All` | Creating missing static groups (opt-in per profile) | First Apply with group creation enabled |
 
 ### 3. Baseline sources
@@ -96,12 +97,26 @@ The app scans sources recursively and infers each item from the file itself:
 
 | File | Detected as | Display name |
 | --- | --- | --- |
-| `.json` with `@odata.type` | Settings Catalog, macOS compliance policy, macOS custom configuration, or assignment filter | `name` / `displayName` |
+| `.json` with `@odata.type` | Settings Catalog, compliance policy, custom configuration, or assignment filter | `name` / `displayName` |
 | `.json` with `settings` + `platforms` + `technologies` | Settings Catalog policy | `name` |
 | `.json` with `rule` + `platform` | Assignment filter | `displayName` |
 | `.mobileconfig` | Custom configuration profile (signed profiles are reported as unsupported) | `PayloadDisplayName`, else filename |
 | `.sh` / `.zsh` | Shell script, or custom attribute (see below) | Filename without extension |
 | `.pkg` / `.dmg` | macOS app (macOSPkgApp / macOSDmgApp); bundle ID and version are read from the package at plan time | Filename without extension |
+| `.ipa` | iOS app (iosLobApp, preview); bundle ID, version and provisioning expiry are read from the package at plan time | Filename without extension |
+
+### Platforms
+
+Every item targets macOS or iOS/iPadOS; the platform is shown in the item
+list and can be filtered on. JSON files state their platform themselves
+(`platforms`, `platform` or the `@odata.type`), `.ipa` packages are always
+iOS/iPadOS, and scripts, custom attributes and `.pkg`/`.dmg` packages are
+always macOS. A `.mobileconfig` cannot state its platform: it defaults to
+macOS and can be switched per item with the **Platform** picker in the item
+details (or **Set Platform** with several items selected). The choice is kept
+inside the app, so it survives source syncs. The one path convention: profiles
+under a top-level `iOS and iPadOS` folder — the tenant export layout — start
+as iOS/iPadOS.
 
 Graph exports and [IntuneManagement](https://github.com/Micke-K/IntuneManagement)
 exports both work; read-only and tool-specific keys are stripped before upload.
@@ -166,43 +181,53 @@ assignments in one place or use the right-click menu; the list header
 checkbox and the **Selection** toolbar menu include or exclude everything
 currently shown. Assignments can carry an include/exclude assignment filter
 (except on shell scripts and custom attributes — Intune does not support
-filters there, so the app hides the fields and plans them without one); a
-built-in macOS ADE filter template is available:
+filters there, so the app hides the fields and plans them without one). A
+filter's platform must match the item's; built-in ADE filter templates are
+available per platform, created from
 `(device.enrollmentProfileName -eq "{{EnrollmentProfileName}}")`.
 The app warns when a dynamic device group is used — delivery of
 enrollment-critical policies may be delayed past Await Configuration.
-App assignments use the *required* install intent.
+App assignments install as **Required** by default; choose **Available in
+Company Portal** in the assignment editor for self-service installs
+(user assignments only).
 
-### macOS apps (.pkg / .dmg)
+### Apps (.pkg / .dmg / .ipa)
 
 App packages are encrypted locally (AES-256-CBC + HMAC-SHA256, the format
 Intune expects), uploaded to Azure Storage in chunks, committed, and published
 before assignment. Bundle ID/version come from the package itself —
-`Distribution`/`PackageInfo` for .pkg, the app bundle's Info.plist for .dmg.
-The publisher field defaults to the app name; adjust it in Intune if needed.
-Re-uploads happen only when the bundle version or file name changes.
+`Distribution`/`PackageInfo` for .pkg, the app bundle's Info.plist for .dmg
+and .ipa. The publisher field defaults to the app name; adjust it in Intune if
+needed. Re-uploads happen only when the bundle version, build number or file
+name changes.
+
+`.ipa` support is a **preview**: the upload follows Microsoft's LOB sample,
+but it has not yet been verified against a production deployment. The .ipa
+must be signed — the provisioning profile's expiration date is required by
+Intune, and the plan warns when it expires within 30 days.
 
 ## Exporting from a tenant
 
 Select a tenant profile in the sidebar to see its existing objects. Choose
 **Export All** in the toolbar, or select objects and choose **Export…** from
 the context menu, then pick a folder. Each object is saved in the format the
-app reads back, in one subfolder per type, so the folder can be added as a
-source directly:
+app reads back, grouped by platform and type (`macOS/Compliance`,
+`iOS and iPadOS/Settings Catalog`, …), so the folder can be added as a source
+directly:
 
 | Object | Exported as |
 | --- | --- |
-| Settings Catalog policy (macOS) | `.json` including its settings |
-| Compliance policy (macOS) | `.json` including scheduled actions |
-| Custom configuration profile (macOS) | The original `.mobileconfig` |
-| Assignment filter (macOS) | `.json` |
+| Settings Catalog policy | `.json` including its settings |
+| Compliance policy | `.json` including scheduled actions |
+| Custom configuration profile | The original `.mobileconfig` |
+| Assignment filter | `.json` |
 | Shell script | `.sh` with an `# intune:` directive for its run options |
 | Custom attribute | `.sh` in a `CustomAttributes` folder |
 
 Exports are cleaned: read-only Graph fields, the identity tag and the tenant
 profile's naming prefix are removed, and assignments are not included. App
-packages and objects for other platforms are skipped, and existing files are
-never overwritten. Exported objects carry no identity tag, so deploying an
+packages and objects for platforms other than macOS and iOS/iPadOS are
+skipped, and existing files are never overwritten. Exported objects carry no identity tag, so deploying an
 export back into the **same** tenant creates new objects next to the
 originals — exports are meant for other tenants.
 

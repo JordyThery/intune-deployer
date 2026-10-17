@@ -148,12 +148,40 @@ struct ItemDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 LabeledContent("Detected because", value: item.detectionReason)
                 LabeledContent("File", value: item.relativePath)
+                platformRow
                 LabeledContent("Item ID", value: item.id)
                     .help("Stable identity used for the \(ItemIdentity.tag(forShortID: item.id)) identity tag")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .font(.callout)
         }
+    }
+
+    /// `.mobileconfig` profiles cannot state their platform, so it is chosen
+    /// here; every other type carries it in the file or package format.
+    @ViewBuilder
+    private var platformRow: some View {
+        if item.fileURL.pathExtension.lowercased() == "mobileconfig" {
+            Picker("Platform", selection: platformBinding) {
+                ForEach(ItemPlatform.allCases, id: \.self) { platform in
+                    Text(platform.displayName).tag(platform)
+                }
+            }
+            .pickerStyle(.menu)
+            .help("The profile deploys as a configuration profile for this platform")
+        } else {
+            LabeledContent("Platform", value: item.platform.displayName)
+        }
+    }
+
+    private var platformBinding: Binding<ItemPlatform> {
+        Binding(
+            get: { item.platform },
+            set: { newValue in
+                store.platformOverrides.set(newValue, for: item)
+                Task { await store.scan(sourceID: item.sourceID) }
+            }
+        )
     }
 
     private var tokensSection: some View {

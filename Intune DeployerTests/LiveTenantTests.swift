@@ -29,7 +29,11 @@ struct LiveTenantTests {
     }
 
     private var liveWritesEnabled: Bool {
+        // xcodebuild cannot inject environment variables into app-hosted
+        // tests; the user-defaults key enables scripted runs:
+        //   defaults write be.jordythery.intune-deployer LiveWriteTests -bool true
         ProcessInfo.processInfo.environment["INTUNE_DEPLOYER_LIVE_WRITE"] == "1"
+            || UserDefaults.standard.bool(forKey: "LiveWriteTests")
     }
 
     // MARK: - Read-only: dry-run plan over the real sources
@@ -132,6 +136,12 @@ struct LiveTenantTests {
             "Filters/ade.json": Fixtures.assignmentFilterJSON,
             "Scripts/greeting.sh": Fixtures.scriptWithOptionsDirective,
             "Custom Attributes/battery.sh": Fixtures.attributeScriptByFolder,
+            // iOS/iPadOS objects: stated in the JSON, or via the export
+            // folder rule for the profile.
+            "iOS Compliance/passcode.json": Fixtures.iosComplianceJSON,
+            "iOS Catalog/restrictions.json": Fixtures.iosSettingsCatalogJSON,
+            "iOS Filters/ade.json": Fixtures.iosFilterJSON,
+            "iOS and iPadOS/Profiles/wifi.mobileconfig": Fixtures.mobileconfig,
         ])
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
@@ -140,9 +150,14 @@ struct LiveTenantTests {
         let sourceStore = SourceStore(storageURL: storeDir.appending(path: "sources.json"))
         sourceStore.addLocalFolder(at: fixtureRoot)
         let sourceID = try #require(sourceStore.sources.first?.id)
-        await sourceStore.scan(sourceID: sourceID)
+        // addLocalFolder schedules its own initial scan; wait for it instead
+        // of racing it (a superseded scan discards its results by design).
+        for _ in 0..<200 where sourceStore.items(for: [sourceID]).isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let items = sourceStore.items(for: [sourceID])
-        #expect(items.count == 6)
+        #expect(items.count == 10)
+        #expect(items.count { $0.platform == .iOSiPadOS } == 4)
 
         // Temporary profile reusing the real registration and cached account.
         var intent = AssignmentIntent()
@@ -173,7 +188,7 @@ struct LiveTenantTests {
         #expect(session.planError == nil, "plan failed: \(session.planError ?? "")")
         var plan = try #require(session.currentPlan)
         #expect(!plan.hasErrors, "plan errors: \(plan.errors.map(\.message))")
-        #expect(plan.createCount == 6, "expected 6 creates, got \(plan.createCount)")
+        #expect(plan.createCount == 10, "expected 10 creates, got \(plan.createCount)")
 
         // 2. Apply.
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: sourceStore)
@@ -191,7 +206,7 @@ struct LiveTenantTests {
                 Issue.record("“\(action.displayName)” is not idempotent: \(changes.map { "\($0.path): \($0.oldValue) → \($0.newValue)" })")
             }
         }
-        #expect(plan.unchangedCount == 6, "expected 6 unchanged, got \(plan.unchangedCount)")
+        #expect(plan.unchangedCount == 10, "expected 10 unchanged, got \(plan.unchangedCount)")
 
         // 4. Edit one file → exactly that item plans as an update.
         let scriptURL = fixtureRoot.appending(path: "Scripts/greeting.sh")
@@ -201,7 +216,7 @@ struct LiveTenantTests {
         await session.plan(profile: profile, items: items, sourceStore: sourceStore)
         plan = try #require(session.currentPlan)
         #expect(plan.updateCount == 1, "expected 1 update after editing the script, got \(plan.updateCount)")
-        #expect(plan.unchangedCount == 5)
+        #expect(plan.unchangedCount == 9)
 
         // 5. Apply the update, then delete every test object precisely.
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: sourceStore)
@@ -220,7 +235,7 @@ struct LiveTenantTests {
         }
         // Final sweep catches anything the targeted deletes missed.
         let swept = try await sweepAutotestObjects(client: cleanupClient)
-        #expect(deletedCount == 6, "deleted \(deletedCount) of 6 (final sweep removed \(swept))")
-        print("Live lifecycle complete: 6 created, 1 updated, \(deletedCount) deleted, \(swept) swept")
+        #expect(deletedCount == 10, "deleted \(deletedCount) of 10 (final sweep removed \(swept))")
+        print("Live lifecycle complete: 10 created, 1 updated, \(deletedCount) deleted, \(swept) swept")
     }
 }

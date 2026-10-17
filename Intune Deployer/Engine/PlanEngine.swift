@@ -70,12 +70,12 @@ nonisolated enum PlanEngine {
     static func makePlan(input: PlanInput) -> Plan {
         var plan = Plan()
         var groupsToCreate: Set<String> = []
-        var templateFilters: [String: String] = [:] // name → substituted rule
+        var templateFilters: [String: (rule: String, platform: ItemPlatform)] = [:]
 
         // Filter items created in this same plan (lowercased name → canonical
-        // display name), so intents can reference them before they exist and
-        // apply can look them up by the exact created name.
-        var pendingFilterNames: [String: String] = [:]
+        // display name + platform), so intents can reference them before they
+        // exist and apply can look them up by the exact created name.
+        var pendingFilterNames: [String: (name: String, platform: ItemPlatform)] = [:]
         var builtPayloads: [(PlanInput.SelectedItem, PayloadBuilder.Built)] = []
 
         for selected in input.selectedItems {
@@ -88,7 +88,7 @@ nonisolated enum PlanEngine {
                     appInfo: selected.appInfo
                 )
                 if built.collection == .assignmentFilters {
-                    pendingFilterNames[built.displayName.lowercased()] = built.displayName
+                    pendingFilterNames[built.displayName.lowercased()] = (built.displayName, selected.item.platform)
                 }
                 builtPayloads.append((selected, built))
             } catch {
@@ -132,6 +132,8 @@ nonisolated enum PlanEngine {
             let assignment = resolveAssignment(
                 intent: intent,
                 itemName: built.displayName,
+                itemPlatform: item.platform,
+                collection: built.collection,
                 input: input,
                 existingFilters: existingFilters,
                 pendingFilterNames: pendingFilterNames,
@@ -184,7 +186,7 @@ nonisolated enum PlanEngine {
         }
         plan.groupsToCreate = groupsToCreate.sorted().map(PlannedGroupCreation.init(name:))
         plan.filtersToCreate = templateFilters
-            .map { PlannedFilterCreation(name: $0.key, rule: $0.value) }
+            .map { PlannedFilterCreation(name: $0.key, rule: $0.value.rule, platform: $0.value.platform) }
             .sorted { $0.name < $1.name }
 
         // Orphans: objects tagged by us whose item is no longer selected, or
@@ -227,14 +229,35 @@ nonisolated enum PlanEngine {
     private static func resolveAssignment(
         intent: AssignmentIntent,
         itemName: String,
+        itemPlatform: ItemPlatform,
+        collection: TenantCollection,
         input: PlanInput,
         existingFilters: [RemoteObject],
-        pendingFilterNames: [String: String],
+        pendingFilterNames: [String: (name: String, platform: ItemPlatform)],
         groupsToCreate: inout Set<String>,
-        templateFilters: inout [String: String],
+        templateFilters: inout [String: (rule: String, platform: ItemPlatform)],
         issues: inout [PlanIssue],
         warnings: inout [String]
     ) -> ResolvedAssignment? {
+        // Install intent only exists for apps; Available is user-based and
+        // cannot target All devices.
+        let appIntent: AssignmentIntent.AppIntent = collection == .apps ? intent.appIntent : .required
+        if appIntent == .available {
+            switch intent.mode {
+            case .allDevices:
+                issues.append(PlanIssue(
+                    severity: .error,
+                    itemName: itemName,
+                    message: "“Available in Company Portal” requires a user assignment — choose All users or a user group"
+                ))
+                return nil
+            case .group:
+                warnings.append("“Available in Company Portal” only works for user groups — devices in “\(intent.groupName)” would not see the app")
+            case .none, .allUsers:
+                break
+            }
+        }
+
         let target: ResolvedAssignment.Target
         switch intent.mode {
         case .none:
@@ -270,23 +293,42 @@ nonisolated enum PlanEngine {
             }
         }
 
-        // Filter resolution.
+        // Filter resolution. A filter's platform must match the item's —
+        // Intune rejects cross-platform filter assignments.
         var filter: ResolvedAssignment.FilterResolution?
         let filterName = intent.filterName.trimmingCharacters(in: .whitespaces)
         if !filterName.isEmpty {
+            // nil = platform unknown (older object without the field): skip.
+            func requirePlatform(_ filterPlatformValue: String?) -> Bool {
+                guard let filterPlatformValue,
+                      filterPlatformValue.caseInsensitiveCompare(itemPlatform.filterPlatformValue) != .orderedSame else {
+                    return true
+                }
+                issues.append(PlanIssue(
+                    severity: .error,
+                    itemName: itemName,
+                    message: "Filter “\(filterName)” targets \(filterPlatformValue) and cannot be used on a \(itemPlatform.displayName) item"
+                ))
+                return false
+            }
+
             if let existing = existingFilters.first(where: { $0.displayName.caseInsensitiveCompare(filterName) == .orderedSame }) {
+                guard requirePlatform(Self.filterPlatformValue(of: existing)) else { return nil }
                 filter = .existing(id: existing.id)
-            } else if let canonicalName = pendingFilterNames[filterName.lowercased()] {
-                filter = .pendingCreation(name: canonicalName)
-            } else if filterName.caseInsensitiveCompare(BuiltInFilterTemplate.name) == .orderedSame {
+            } else if let pending = pendingFilterNames[filterName.lowercased()] {
+                guard requirePlatform(pending.platform.filterPlatformValue) else { return nil }
+                filter = .pendingCreation(name: pending.name)
+            } else if let templatePlatform = BuiltInFilterTemplate.platform(forName: filterName) {
                 // Create the built-in ADE template filter during apply.
+                guard requirePlatform(templatePlatform.filterPlatformValue) else { return nil }
+                let templateName = BuiltInFilterTemplate.name(for: templatePlatform)
                 let substitution = VariableSubstitution.substitute(
                     BuiltInFilterTemplate.rule,
                     variables: input.profile.variables
                 )
                 if substitution.unresolved.isEmpty {
-                    templateFilters[BuiltInFilterTemplate.name] = substitution.text
-                    filter = .pendingCreation(name: BuiltInFilterTemplate.name)
+                    templateFilters[templateName] = (substitution.text, templatePlatform)
+                    filter = .pendingCreation(name: templateName)
                 } else {
                     issues.append(PlanIssue(
                         severity: .error,
@@ -303,7 +345,14 @@ nonisolated enum PlanEngine {
             }
         }
 
-        return ResolvedAssignment(target: target, filter: filter, filterMode: intent.filterMode)
+        return ResolvedAssignment(target: target, filter: filter, filterMode: intent.filterMode, appIntent: appIntent)
+    }
+
+    /// The devicePlatformType value of an existing tenant filter; nil when
+    /// the body carries none (the platform check is then skipped).
+    private static func filterPlatformValue(of filter: RemoteObject) -> String? {
+        let dict = try? JSONSerialization.jsonObject(with: filter.body) as? [String: Any]
+        return dict?["platform"] as? String
     }
 
     // MARK: - Settings Catalog validation

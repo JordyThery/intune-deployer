@@ -1,7 +1,9 @@
 import Foundation
 
 /// Classifies a `.json` file into an Intune item type by inspecting the JSON
-/// itself — `@odata.type` when present, otherwise the JSON shape.
+/// itself — `@odata.type` when present, otherwise the JSON shape. The file
+/// also states its platform (macOS or iOS/iPadOS); other platforms are
+/// reported as unsupported.
 ///
 /// Accepts raw Graph exports and Micke-K IntuneManagement exports (Graph JSON
 /// with extra keys such as `assignments`). Unknown/read-only keys are kept at
@@ -9,6 +11,7 @@ import Foundation
 nonisolated enum JSONInference {
     struct Detection: Sendable {
         let type: ItemType
+        let platform: ItemPlatform
         let displayName: String?
         let reason: String
     }
@@ -32,22 +35,30 @@ nonisolated enum JSONInference {
         let displayName = (dict["name"] as? String) ?? (dict["displayName"] as? String)
 
         if let odataType = dict["@odata.type"] as? String {
-            return classify(odataType: odataType, displayName: displayName)
+            return classify(odataType: odataType, dict: dict, displayName: displayName)
         }
 
         // No @odata.type — infer from shape.
         // Settings Catalog policies (deviceManagement/configurationPolicies)
         // are a concrete type, so Graph exports often omit @odata.type.
         if dict["settings"] != nil, dict["platforms"] != nil, dict["technologies"] != nil {
+            guard let platform = settingsCatalogPlatform(dict) else {
+                return .skip(reason: "Settings Catalog policy for an unsupported platform (\(dict["platforms"] as? String ?? "unknown"))")
+            }
             return .item(Detection(
                 type: .settingsCatalog,
+                platform: platform,
                 displayName: displayName,
                 reason: "JSON shape: settings + platforms + technologies"
             ))
         }
         if dict["rule"] is String, dict["platform"] != nil {
+            guard let platform = filterPlatform(dict) else {
+                return .skip(reason: "Assignment filter for an unsupported platform (\(dict["platform"] as? String ?? "unknown"))")
+            }
             return .item(Detection(
                 type: .assignmentFilter,
+                platform: platform,
                 displayName: displayName,
                 reason: "JSON shape: rule + platform (assignment filter)"
             ))
@@ -55,27 +66,56 @@ nonisolated enum JSONInference {
         return .skip(reason: "Unrecognised JSON shape (no @odata.type and no known key pattern)")
     }
 
-    private static func classify(odataType: String, displayName: String?) -> Outcome {
+    private static func classify(odataType: String, dict: [String: Any], displayName: String?) -> Outcome {
         let lower = odataType.lowercased()
-        func detection(_ type: ItemType) -> Outcome {
-            .item(Detection(type: type, displayName: displayName, reason: "@odata.type is \(odataType)"))
+        func detection(_ type: ItemType, _ platform: ItemPlatform) -> Outcome {
+            .item(Detection(type: type, platform: platform, displayName: displayName, reason: "@odata.type is \(odataType)"))
         }
 
         if lower.contains("macoscustomconfiguration") {
-            return detection(.customConfiguration)
+            return detection(.customConfiguration, .macOS)
+        }
+        if lower.contains("ioscustomconfiguration") {
+            return detection(.customConfiguration, .iOSiPadOS)
         }
         if lower.contains("macoscompliancepolicy") {
-            return detection(.compliancePolicy)
+            return detection(.compliancePolicy, .macOS)
+        }
+        if lower.contains("ioscompliancepolicy") {
+            return detection(.compliancePolicy, .iOSiPadOS)
         }
         if lower.contains("compliancepolicy") {
-            return .skip(reason: "Compliance policy for a non-macOS platform (\(odataType))")
+            return .skip(reason: "Compliance policy for an unsupported platform (\(odataType))")
         }
         if lower.contains("devicemanagementconfigurationpolicy") {
-            return detection(.settingsCatalog)
+            guard let platform = settingsCatalogPlatform(dict) else {
+                return .skip(reason: "Settings Catalog policy for an unsupported platform (\(dict["platforms"] as? String ?? "unknown"))")
+            }
+            return detection(.settingsCatalog, platform)
         }
         if lower.contains("assignmentfilter") {
-            return detection(.assignmentFilter)
+            guard let platform = filterPlatform(dict) else {
+                return .skip(reason: "Assignment filter for an unsupported platform (\(dict["platform"] as? String ?? "unknown"))")
+            }
+            return detection(.assignmentFilter, platform)
         }
         return .skip(reason: "Unsupported @odata.type: \(odataType)")
+    }
+
+    /// Platform from a Settings Catalog `platforms` value; a missing value
+    /// defaults to macOS (the payload builder fills it in with a warning).
+    private static func settingsCatalogPlatform(_ dict: [String: Any]) -> ItemPlatform? {
+        guard let platforms = (dict["platforms"] as? String)?.lowercased(), !platforms.isEmpty else { return .macOS }
+        if platforms.contains("macos") { return .macOS }
+        if platforms.contains("ios") { return .iOSiPadOS }
+        return nil
+    }
+
+    /// Platform from an assignment filter `platform` value (devicePlatformType).
+    private static func filterPlatform(_ dict: [String: Any]) -> ItemPlatform? {
+        guard let platform = (dict["platform"] as? String)?.lowercased(), !platform.isEmpty else { return .macOS }
+        if platform == "macos" { return .macOS }
+        if platform == "ios" { return .iOSiPadOS }
+        return nil
     }
 }

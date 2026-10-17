@@ -126,13 +126,6 @@ extension TenantSession {
         let accessing = folder.startAccessingSecurityScopedResource()
         defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
 
-        let fileManager = FileManager.default
-        var taken = Set<String>()
-        for subfolder in Set(TenantExporter.exportableCollections.map(TenantExporter.folder(for:))) {
-            let entries = (try? fileManager.contentsOfDirectory(atPath: folder.appending(path: subfolder).path)) ?? []
-            taken.formUnion(entries.map { "\(subfolder)/\($0)".lowercased() })
-        }
-
         var written: [String] = []
         var skipped: [ExportSummary.Skipped] = []
         // Stable order: by folder, then name.
@@ -140,6 +133,13 @@ extension TenantSession {
             if case .file(let file) = outcome { return file }
             return nil
         }.sorted { ($0.folder, $0.baseName) < ($1.folder, $1.baseName) }
+
+        let fileManager = FileManager.default
+        var taken = Set<String>()
+        for subfolder in Set(files.map(\.folder)) {
+            let entries = (try? fileManager.contentsOfDirectory(atPath: folder.appending(path: subfolder).path)) ?? []
+            taken.formUnion(entries.map { "\(subfolder)/\($0)".lowercased() })
+        }
 
         for outcome in outcomes {
             if case .skipped(let name, let reason) = outcome {

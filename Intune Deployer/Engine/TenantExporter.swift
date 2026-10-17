@@ -27,10 +27,12 @@ nonisolated enum TenantExporter {
     /// Collections offered for export (app packages excluded).
     static let exportableCollections: [TenantCollection] = TenantCollection.allCases.filter { $0 != .apps }
 
-    /// Subfolder per collection. Custom attributes must live in a folder whose
-    /// name marks them as such, so a rescan detects them again.
-    static func folder(for collection: TenantCollection) -> String {
-        switch collection {
+    /// Subfolder per collection and platform, e.g. "macOS/Compliance". The
+    /// "iOS and iPadOS" root marks re-imported profiles as iOS, and custom
+    /// attributes must live in a folder whose name marks them as such.
+    static func folder(for collection: TenantCollection, platform: ItemPlatform) -> String {
+        let root = platform == .macOS ? "macOS" : "iOS and iPadOS"
+        let type: String = switch collection {
         case .settingsCatalog: "Settings Catalog"
         case .deviceConfigurations: "Configuration Profiles"
         case .compliancePolicies: "Compliance"
@@ -39,6 +41,7 @@ nonisolated enum TenantExporter {
         case .assignmentFilters: "Assignment Filters"
         case .apps: "Apps"
         }
+        return "\(root)/\(type)"
     }
 
     // MARK: - Conversion
@@ -55,37 +58,36 @@ nonisolated enum TenantExporter {
 
         switch collection {
         case .settingsCatalog:
-            let platforms = (dict["platforms"] as? String)?.lowercased() ?? ""
-            guard platforms.contains("macos") else {
-                return .skipped(name: name, reason: "Not a macOS policy (\(dict["platforms"] as? String ?? "no platform"))")
+            guard let platform = applePlatform(settingsCatalog: dict["platforms"] as? String) else {
+                return .skipped(name: name, reason: "Not a macOS or iOS/iPadOS policy (\(dict["platforms"] as? String ?? "no platform"))")
             }
             guard dict["settings"] is [Any] else {
                 return .skipped(name: name, reason: "The policy's settings could not be read")
             }
             var cleaned = cleanedJSON(dict, nameKey: "name", name: name)
             cleaned["displayName"] = nil
-            return jsonFile(collection, name: name, dict: cleaned)
+            return jsonFile(collection, platform: platform, name: name, dict: cleaned)
 
         case .compliancePolicies:
-            guard odataType.contains("macoscompliancepolicy") else {
-                return .skipped(name: name, reason: "Not a macOS compliance policy")
+            guard let platform = applePlatform(odataType: odataType, suffix: "compliancepolicy") else {
+                return .skipped(name: name, reason: "Not a macOS or iOS/iPadOS compliance policy")
             }
-            return jsonFile(collection, name: name, dict: cleanedJSON(dict, nameKey: "displayName", name: name))
+            return jsonFile(collection, platform: platform, name: name, dict: cleanedJSON(dict, nameKey: "displayName", name: name))
 
         case .assignmentFilters:
-            guard (dict["platform"] as? String)?.lowercased() == "macos" else {
-                return .skipped(name: name, reason: "Not a macOS assignment filter")
+            guard let platform = applePlatform(filter: dict["platform"] as? String) else {
+                return .skipped(name: name, reason: "Not a macOS or iOS/iPadOS assignment filter")
             }
-            return jsonFile(collection, name: name, dict: cleanedJSON(dict, nameKey: "displayName", name: name))
+            return jsonFile(collection, platform: platform, name: name, dict: cleanedJSON(dict, nameKey: "displayName", name: name))
 
         case .deviceConfigurations:
-            guard odataType.contains("macoscustomconfiguration") else {
-                return .skipped(name: name, reason: "Only macOS custom configuration profiles can be exported")
+            guard let platform = applePlatform(odataType: odataType, suffix: "customconfiguration") else {
+                return .skipped(name: name, reason: "Only macOS and iOS/iPadOS custom configuration profiles can be exported")
             }
             guard let payload = (dict["payload"] as? String).flatMap({ Data(base64Encoded: $0) }), !payload.isEmpty else {
                 return .skipped(name: name, reason: "The profile has no payload")
             }
-            return .file(ExportFile(folder: folder(for: collection), baseName: name, fileExtension: "mobileconfig", contents: payload))
+            return .file(ExportFile(folder: folder(for: collection, platform: platform), baseName: name, fileExtension: "mobileconfig", contents: payload))
 
         case .shellScripts, .customAttributes:
             guard let content = (dict["scriptContent"] as? String).flatMap({ Data(base64Encoded: $0) }),
@@ -97,7 +99,7 @@ nonisolated enum TenantExporter {
                 : shellScriptDirective(dict)
             let ext = ((dict["fileName"] as? String)?.lowercased().hasSuffix(".zsh") == true) ? "zsh" : "sh"
             return .file(ExportFile(
-                folder: folder(for: collection),
+                folder: folder(for: collection, platform: .macOS),
                 baseName: name,
                 fileExtension: ext,
                 contents: Data(withDirective(directive, in: text).utf8)
@@ -106,6 +108,31 @@ nonisolated enum TenantExporter {
         case .apps:
             return .skipped(name: name, reason: "App packages are not exported")
         }
+    }
+
+    // MARK: - Platform detection
+
+    private static func applePlatform(settingsCatalog platforms: String?) -> ItemPlatform? {
+        guard let platforms = platforms?.lowercased() else { return nil }
+        if platforms.contains("macos") { return .macOS }
+        if platforms.contains("ios") { return .iOSiPadOS }
+        return nil
+    }
+
+    private static func applePlatform(filter platform: String?) -> ItemPlatform? {
+        switch platform?.lowercased() {
+        case "macos": .macOS
+        case "ios": .iOSiPadOS
+        default: nil
+        }
+    }
+
+    /// Platform from an @odata.type such as "…macoscompliancepolicy"
+    /// (lowercased input, e.g. suffix "compliancepolicy").
+    private static func applePlatform(odataType: String, suffix: String) -> ItemPlatform? {
+        if odataType.contains("macos\(suffix)") { return .macOS }
+        if odataType.contains("ios\(suffix)") { return .iOSiPadOS }
+        return nil
     }
 
     // MARK: - Cleaning
@@ -140,14 +167,14 @@ nonisolated enum TenantExporter {
         return cleaned
     }
 
-    private static func jsonFile(_ collection: TenantCollection, name: String, dict: [String: Any]) -> Outcome {
+    private static func jsonFile(_ collection: TenantCollection, platform: ItemPlatform, name: String, dict: [String: Any]) -> Outcome {
         guard let data = try? JSONSerialization.data(
             withJSONObject: dict,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         ) else {
             return .skipped(name: name, reason: "The object could not be encoded as JSON")
         }
-        return .file(ExportFile(folder: folder(for: collection), baseName: name, fileExtension: "json", contents: data))
+        return .file(ExportFile(folder: folder(for: collection, platform: platform), baseName: name, fileExtension: "json", contents: data))
     }
 
     // MARK: - Script directives

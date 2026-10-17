@@ -150,6 +150,13 @@ struct TenantProfileEditorView: View {
                     TextField("Group name", text: defaultBinding(for: type, \.groupName),
                               prompt: Text("Static Entra security group"))
                 }
+                if type == .app {
+                    Picker("Install intent", selection: defaultBinding(for: type, \.appIntent)) {
+                        ForEach(AssignmentIntent.AppIntent.allCases, id: \.self) { appIntent in
+                            Text(appIntent.displayName).tag(appIntent)
+                        }
+                    }
+                }
                 // Intune has no assignment-filter support for scripts and
                 // custom attributes.
                 if type.supportsAssignmentFilters {
