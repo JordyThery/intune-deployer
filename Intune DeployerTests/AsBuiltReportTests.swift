@@ -14,7 +14,7 @@ struct AsBuiltReportTests {
                 kind: .create,
                 payload: Data(#"{"name": "[LAB9] Disable Content Caching", "platforms": "macOS"}"#.utf8),
                 existingObjectID: nil,
-                assignment: ResolvedAssignment(target: .allDevices, filter: nil),
+                assignments: [ResolvedAssignment(target: .allDevices, filter: nil)],
                 warnings: ["Example warning"]
             ),
         ]
@@ -58,7 +58,7 @@ struct AsBuiltReportTests {
     @Test func assignmentDescriptionsAreReadable() {
         #expect(AsBuiltReport.assignmentDescription(nil) == "Not assigned (left untouched)")
         #expect(AsBuiltReport.assignmentDescription(
-            ResolvedAssignment(target: .group(id: "g1", name: "Pilots"), filter: .pendingCreation(name: "ADE"), filterMode: .exclude)
+            [ResolvedAssignment(target: .group(id: "g1", name: "Pilots"), filter: .pendingCreation(name: "ADE"), filterMode: .exclude)]
         ) == "Group “Pilots” with exclude filter “ADE”")
     }
 }

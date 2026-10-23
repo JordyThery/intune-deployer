@@ -126,13 +126,15 @@ nonisolated enum PlanEngine {
 
             // Resolve the assignment intent (explicit, else per-type default).
             var intent = input.profile.effectiveAssignment(for: item.id, type: item.type)
-            if !item.type.supportsAssignmentFilters,
-               intent.mode != .none,
-               !intent.filterName.trimmingCharacters(in: .whitespaces).isEmpty {
-                warnings.append("Intune does not support assignment filters on \(item.type.displayName.lowercased())s — filter “\(intent.filterName)” is ignored")
-                intent.filterName = ""
+            if !item.type.supportsAssignmentFilters {
+                for index in intent.targets.indices
+                where intent.targets[index].kind == .include
+                    && !intent.targets[index].filterName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    warnings.append("Intune does not support assignment filters on \(item.type.displayName.lowercased())s — filter “\(intent.targets[index].filterName)” is ignored")
+                    intent.targets[index].filterName = ""
+                }
             }
-            let assignment = resolveAssignment(
+            let assignments = resolveAssignments(
                 intent: intent,
                 itemName: built.displayName,
                 itemPlatform: item.platform,
@@ -166,14 +168,37 @@ nonisolated enum PlanEngine {
             }
 
             let kind: PlanActionKind
+            var settingChanges: [SettingChange] = []
             if let existing {
                 do {
-                    let changes = try GraphDiff.changes(
+                    let rawChanges = try GraphDiff.changes(
                         desired: built.body,
                         remote: existing.body,
                         ignoringKeys: Self.diffIgnoredKeys(for: built.collection)
                     )
-                    kind = changes.isEmpty ? .unchanged : .update(changes)
+                    if built.collection == .settingsCatalog,
+                       let perSetting = SettingsCatalogDiff.changes(desired: built.body, remote: existing.body) {
+                        // Settings compare by definition ID (order-independent);
+                        // the other fields by the regular diff. The raw changes
+                        // stay available for the plan's raw view.
+                        settingChanges = perSetting
+                        let otherFields = try GraphDiff.changes(
+                            desired: built.body,
+                            remote: existing.body,
+                            ignoringKeys: Self.diffIgnoredKeys(for: built.collection).union(["settings"])
+                        )
+                        if perSetting.isEmpty, otherFields.isEmpty, SettingsCatalogDiff.explains(rawChanges) {
+                            kind = .unchanged
+                        } else if perSetting.isEmpty, SettingsCatalogDiff.explains(rawChanges) {
+                            // Only top-level fields changed: omit positional
+                            // noise from reordered settings.
+                            kind = .update(otherFields)
+                        } else {
+                            kind = .update(rawChanges)
+                        }
+                    } else {
+                        kind = rawChanges.isEmpty ? .unchanged : .update(rawChanges)
+                    }
                 } catch {
                     // Never treat an uncomparable object as unchanged.
                     warnings.append("Could not compare with the tenant object — it will be updated")
@@ -190,7 +215,8 @@ nonisolated enum PlanEngine {
                 kind: kind,
                 payload: built.body,
                 existingObjectID: existing?.id,
-                assignment: assignment,
+                assignments: assignments,
+                settingChanges: settingChanges,
                 warnings: warnings
             ))
         }
@@ -236,7 +262,10 @@ nonisolated enum PlanEngine {
 
     // MARK: - Assignment resolution
 
-    private static func resolveAssignment(
+    /// Resolves every target of an intent; nil = leave assignments untouched.
+    /// Any target error is reported and also yields nil, so a partial target
+    /// list can never replace the tenant's assignments.
+    private static func resolveAssignments(
         intent: AssignmentIntent,
         itemName: String,
         itemPlatform: ItemPlatform,
@@ -248,12 +277,106 @@ nonisolated enum PlanEngine {
         templateFilters: inout [String: (rule: String, platform: ItemPlatform)],
         issues: inout [PlanIssue],
         warnings: inout [String]
+    ) -> [ResolvedAssignment]? {
+        guard !intent.targets.isEmpty else { return nil }
+
+        // Cross-target checks.
+        let includedGroups = Set(intent.targets.filter { $0.kind == .include && $0.scope == .group }.map { $0.trimmedGroupName.lowercased() })
+        let excludedGroups = Set(intent.targets.filter { $0.kind == .exclude && $0.scope == .group }.map { $0.trimmedGroupName.lowercased() })
+        var conflicting = false
+        for name in includedGroups.intersection(excludedGroups) where !name.isEmpty {
+            conflicting = true
+            let display = intent.targets.first { $0.trimmedGroupName.lowercased() == name }?.trimmedGroupName ?? name
+            issues.append(PlanIssue(
+                severity: .error,
+                itemName: itemName,
+                message: "Group “\(display)” is both included and excluded"
+            ))
+        }
+        let includeScopes = Set(intent.targets.filter { $0.kind == .include }.map(\.scope))
+        if includeScopes.contains(.allDevices), includeScopes.contains(.allUsers) {
+            warnings.append("Included for both All devices and All users — usually only one is intended")
+        }
+        if includeScopes.isEmpty {
+            warnings.append("Only exclusions are set — Apply removes the item's existing included targets")
+        }
+
+        var resolved: [ResolvedAssignment] = []
+        var failed = conflicting
+        // Duplicates match on kind, scope and group name (case-insensitive,
+        // as Graph resolves names); exact repeats are dropped, repeats with
+        // a different filter or install intent are ambiguous.
+        var seen: [String: AssignmentTarget] = [:]
+        for target in intent.targets {
+            let key = "\(target.kind)|\(target.scope)|\(target.scope == .group ? target.trimmedGroupName.lowercased() : "")"
+            if let earlier = seen[key] {
+                let sameOptions = target.kind == .exclude
+                    || (earlier.trimmedFilterName == target.trimmedFilterName
+                        && earlier.filterMode == target.filterMode
+                        && earlier.appIntent == target.appIntent)
+                if !sameOptions {
+                    failed = true
+                    issues.append(PlanIssue(
+                        severity: .error,
+                        itemName: itemName,
+                        message: "\(target.scope == .group ? "Group “\(target.trimmedGroupName)”" : target.scope.displayName) is listed more than once with different settings"
+                    ))
+                }
+                continue
+            }
+            seen[key] = target
+            if let assignment = resolveTarget(
+                target,
+                itemName: itemName,
+                itemPlatform: itemPlatform,
+                collection: collection,
+                input: input,
+                existingFilters: existingFilters,
+                pendingFilterNames: pendingFilterNames,
+                groupsToCreate: &groupsToCreate,
+                templateFilters: &templateFilters,
+                issues: &issues,
+                warnings: &warnings
+            ) {
+                resolved.append(assignment)
+            } else {
+                failed = true
+            }
+        }
+        // A partial list would silently drop the failed targets on apply;
+        // leave assignments untouched instead (the plan error blocks Apply).
+        return failed ? nil : resolved
+    }
+
+    private static func resolveTarget(
+        _ spec: AssignmentTarget,
+        itemName: String,
+        itemPlatform: ItemPlatform,
+        collection: TenantCollection,
+        input: PlanInput,
+        existingFilters: [RemoteObject],
+        pendingFilterNames: [String: (name: String, platform: ItemPlatform)],
+        groupsToCreate: inout Set<String>,
+        templateFilters: inout [String: (rule: String, platform: ItemPlatform)],
+        issues: inout [PlanIssue],
+        warnings: inout [String]
     ) -> ResolvedAssignment? {
-        // Install intent only exists for apps; Available is user-based and
-        // cannot target All devices.
-        let appIntent: AssignmentIntent.AppIntent = collection == .apps ? intent.appIntent : .required
+        let isExclusion = spec.kind == .exclude
+        // Intune excludes groups only, and exclusions carry no filter.
+        if isExclusion, spec.scope != .group {
+            issues.append(PlanIssue(
+                severity: .error,
+                itemName: itemName,
+                message: "Exclusions can only target groups, not \(spec.scope.displayName.lowercased())"
+            ))
+            return nil
+        }
+
+        // Install intent only exists for app includes; Available is
+        // user-based and cannot target All devices.
+        let appIntent: AssignmentIntent.AppIntent = collection == .apps && !isExclusion ? spec.appIntent : .required
         if appIntent == .available {
-            switch intent.mode {
+            switch spec.scope {
             case .allDevices:
                 issues.append(PlanIssue(
                     severity: .error,
@@ -262,29 +385,27 @@ nonisolated enum PlanEngine {
                 ))
                 return nil
             case .group:
-                warnings.append("“Available in Company Portal” only works for user groups — devices in “\(intent.groupName)” would not see the app")
-            case .none, .allUsers:
+                warnings.append("“Available in Company Portal” only works for user groups — devices in “\(spec.trimmedGroupName)” would not see the app")
+            case .allUsers:
                 break
             }
         }
 
         let target: ResolvedAssignment.Target
-        switch intent.mode {
-        case .none:
-            return nil
+        switch spec.scope {
         case .allDevices:
             target = .allDevices
         case .allUsers:
             target = .allUsers
         case .group:
-            let name = intent.groupName.trimmingCharacters(in: .whitespaces)
+            let name = spec.groupName.trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else {
                 issues.append(PlanIssue(severity: .error, itemName: itemName, message: "Assignment group name is empty"))
                 return nil
             }
             switch input.groups[name] {
             case .found(let id, let isDynamic):
-                if isDynamic {
+                if isDynamic, !isExclusion {
                     warnings.append("“\(name)” is a dynamic group — delivery of enrollment-critical policies may be delayed past Await Configuration")
                 }
                 target = .group(id: id, name: name)
@@ -306,7 +427,7 @@ nonisolated enum PlanEngine {
         // Filter resolution. A filter's platform must match the item's —
         // Intune rejects cross-platform filter assignments.
         var filter: ResolvedAssignment.FilterResolution?
-        let filterName = intent.filterName.trimmingCharacters(in: .whitespaces)
+        let filterName = isExclusion ? "" : spec.filterName.trimmingCharacters(in: .whitespaces)
         if !filterName.isEmpty {
             // nil = platform unknown (older object without the field): skip.
             func requirePlatform(_ filterPlatformValue: String?) -> Bool {
@@ -355,7 +476,13 @@ nonisolated enum PlanEngine {
             }
         }
 
-        return ResolvedAssignment(target: target, filter: filter, filterMode: intent.filterMode, appIntent: appIntent)
+        return ResolvedAssignment(
+            target: target,
+            filter: filter,
+            filterMode: spec.filterMode,
+            appIntent: appIntent,
+            isExclusion: isExclusion
+        )
     }
 
     /// The devicePlatformType value of an existing tenant filter; nil when

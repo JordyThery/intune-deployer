@@ -57,9 +57,17 @@ extension TenantSession {
                 groups: groups,
                 knownSettingDefinitionIDs: knownDefinitions
             )
-            let plan = await Task.detached(priority: .userInitiated) {
+            var plan = await Task.detached(priority: .userInitiated) {
                 PlanEngine.makePlan(input: input)
             }.value
+            // Readable names for changed settings; failures fall back to IDs.
+            let changes = plan.actions.flatMap(\.settingChanges)
+            plan.settingDefinitions = await Self.fetchSettingDefinitions(
+                leafIDs: Set(changes.map(\.definitionID)),
+                parentIDs: Set(changes.flatMap(\.parentDefinitionIDs)),
+                known: knownDefinitions,
+                client: client
+            )
             guard generation == startedGeneration else { return }
             currentPlan = plan
         } catch {
@@ -170,8 +178,8 @@ extension TenantSession {
         var names = Set<String>()
         for item in items {
             let intent = profile.effectiveAssignment(for: item.id, type: item.type)
-            if intent.mode == .group {
-                let name = intent.groupName.trimmingCharacters(in: .whitespaces)
+            for target in intent.targets where target.scope == .group {
+                let name = target.trimmedGroupName
                 if !name.isEmpty { names.insert(name) }
             }
         }
@@ -212,6 +220,74 @@ extension TenantSession {
 
     nonisolated private struct SettingDefinition: Decodable, Sendable {
         let id: String
+    }
+
+    /// Display names (and choice option names) for the given setting
+    /// definitions, via GET deviceManagement/configurationSettings/{id}
+    /// (beta). Best-effort: capped at 100 definitions (changed settings
+    /// first) and 20 seconds; missing names fall back to the ID.
+    nonisolated private static func fetchSettingDefinitions(
+        leafIDs: Set<String>,
+        parentIDs: Set<String>,
+        known: Set<String>?,
+        client: GraphClient
+    ) async -> [String: SettingDefinitionInfo] {
+        nonisolated struct Definition: Decodable, Sendable {
+            nonisolated struct Option: Decodable, Sendable {
+                let itemId: String?
+                let displayName: String?
+            }
+            let id: String
+            let displayName: String?
+            let options: [Option]?
+        }
+        enum Outcome: Sendable {
+            case definition(Definition?)
+            case timedOut
+        }
+        // IDs come from the policy file and become a URL path segment: only
+        // well-formed IDs the tenant knows are requested.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-{}")
+        func isRequestable(_ id: String) -> Bool {
+            !id.isEmpty && id.unicodeScalars.allSatisfy(allowed.contains) && (known?.contains(id) ?? true)
+        }
+        let ids = (leafIDs.sorted() + parentIDs.subtracting(leafIDs).sorted()).filter(isRequestable).prefix(100)
+        guard !ids.isEmpty else { return [:] }
+
+        var result: [String: SettingDefinitionInfo] = [:]
+        await withTaskGroup(of: Outcome.self) { group in
+            for id in ids {
+                group.addTask {
+                    .definition(try? await client.get(Definition.self, "deviceManagement/configurationSettings/\(id)", version: .beta))
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(20))
+                return .timedOut
+            }
+            var pending = ids.count
+            for await outcome in group {
+                guard case .definition(let definition) = outcome else {
+                    group.cancelAll()
+                    break
+                }
+                pending -= 1
+                if let definition, let name = definition.displayName, !name.isEmpty {
+                    var options: [String: String] = [:]
+                    for option in definition.options ?? [] {
+                        if let itemID = option.itemId, let optionName = option.displayName {
+                            options[itemID] = optionName
+                        }
+                    }
+                    result[definition.id] = SettingDefinitionInfo(displayName: name, options: options)
+                }
+                if pending == 0 {
+                    group.cancelAll()
+                    break
+                }
+            }
+        }
+        return result
     }
 
     /// Fetches valid setting definition IDs for validation. Returns nil when
@@ -331,7 +407,7 @@ extension TenantSession {
                             continue // without content, skip assignment
                         }
                     }
-                    if action.assignment != nil {
+                    if action.assignments != nil {
                         assignmentQueue.append((action, newID))
                     }
 
@@ -354,12 +430,12 @@ extension TenantSession {
                             continue
                         }
                     }
-                    if action.assignment != nil {
+                    if action.assignments != nil {
                         assignmentQueue.append((action, objectID))
                     }
 
                 case .unchanged:
-                    if let objectID = action.existingObjectID, action.assignment != nil {
+                    if let objectID = action.existingObjectID, action.assignments != nil {
                         assignmentQueue.append((action, objectID))
                     }
                 }
@@ -380,10 +456,10 @@ extension TenantSession {
 
         // 5. Assignments, last.
         for (action, objectID) in assignmentQueue {
-            guard let assignment = action.assignment else { continue }
+            guard let assignments = action.assignments else { continue }
             do {
                 try await assign(
-                    assignment,
+                    assignments,
                     action: action,
                     objectID: objectID,
                     createdGroupIDs: createdGroupIDs,
@@ -461,14 +537,63 @@ extension TenantSession {
         }
     }
 
+    /// Posts the full include/exclude set in one /assign call (it replaces
+    /// the existing assignments).
     private func assign(
-        _ assignment: ResolvedAssignment,
+        _ assignments: [ResolvedAssignment],
         action: PlanItemAction,
         objectID: String,
         createdGroupIDs: [String: String],
         createdFilterIDs: [String: String],
         client: GraphClient
     ) async throws {
+        // App exclusions apply per install intent (the portal lists them per
+        // section), so each is sent once for every intent the includes use.
+        // TODO(verify): exclusions alongside mixed Required/Available
+        // includes have not been tested against a live tenant.
+        var includeIntents: [AssignmentIntent.AppIntent] = []
+        for assignment in assignments where !assignment.isExclusion && !includeIntents.contains(assignment.appIntent) {
+            includeIntents.append(assignment.appIntent)
+        }
+        let exclusionIntents = includeIntents.isEmpty ? [.required] : includeIntents
+
+        var entries: [[String: Any]] = []
+        for assignment in assignments {
+            let target = try assignmentTarget(assignment, createdGroupIDs: createdGroupIDs, createdFilterIDs: createdFilterIDs)
+            // Apps carry an install intent; every other collection only a target.
+            switch action.collection {
+            case .apps:
+                for intent in assignment.isExclusion ? exclusionIntents : [assignment.appIntent] {
+                    entries.append([
+                        "@odata.type": "#microsoft.graph.mobileAppAssignment",
+                        "intent": intent.rawValue,
+                        "target": target,
+                    ])
+                }
+            default:
+                entries.append(["target": target])
+            }
+        }
+
+        // Scripts use deviceManagementScriptAssignments, apps
+        // mobileAppAssignments, other collections assignments.
+        // TODO(verify): the configurationPolicies assign body shape follows
+        // the documented sibling actions; its own doc page is unpublished.
+        let parameterName = switch action.collection {
+        case .shellScripts, .customAttributes: "deviceManagementScriptAssignments"
+        case .apps: "mobileAppAssignments"
+        default: "assignments"
+        }
+        let body = try JSONSerialization.data(withJSONObject: [parameterName: entries])
+        try await client.post("\(action.collection.listPath)/\(objectID)/assign", version: action.collection.version, body: body)
+    }
+
+    /// The Graph assignment target for one resolved include or exclusion.
+    private func assignmentTarget(
+        _ assignment: ResolvedAssignment,
+        createdGroupIDs: [String: String],
+        createdFilterIDs: [String: String]
+    ) throws -> [String: Any] {
         var target: [String: Any]
         switch assignment.target {
         case .allDevices:
@@ -479,10 +604,15 @@ extension TenantSession {
             guard let groupID = id ?? createdGroupIDs[name] else {
                 throw PayloadError.unsupportedItem("Group “\(name)” was not created")
             }
-            target = ["@odata.type": "#microsoft.graph.groupAssignmentTarget", "groupId": groupID]
+            target = [
+                "@odata.type": assignment.isExclusion
+                    ? "#microsoft.graph.exclusionGroupAssignmentTarget"
+                    : "#microsoft.graph.groupAssignmentTarget",
+                "groupId": groupID,
+            ]
         }
 
-        if let filter = assignment.filter {
+        if let filter = assignment.filter, !assignment.isExclusion {
             let filterID: String?
             switch filter {
             case .existing(let id): filterID = id
@@ -494,31 +624,7 @@ extension TenantSession {
             target["deviceAndAppManagementAssignmentFilterId"] = filterID
             target["deviceAndAppManagementAssignmentFilterType"] = assignment.filterMode.rawValue
         }
-
-        // Scripts use deviceManagementScriptAssignments; apps use
-        // mobileAppAssignments with an install intent; other collections use
-        // assignments. The /assign action replaces the full assignment set.
-        // TODO(verify): the configurationPolicies assign body shape follows
-        // the documented sibling actions; its own doc page is unpublished.
-        let entries: [[String: Any]]
-        let parameterName: String
-        switch action.collection {
-        case .shellScripts, .customAttributes:
-            parameterName = "deviceManagementScriptAssignments"
-            entries = [["target": target]]
-        case .apps:
-            parameterName = "mobileAppAssignments"
-            entries = [[
-                "@odata.type": "#microsoft.graph.mobileAppAssignment",
-                "intent": assignment.appIntent.rawValue,
-                "target": target,
-            ]]
-        default:
-            parameterName = "assignments"
-            entries = [["target": target]]
-        }
-        let body = try JSONSerialization.data(withJSONObject: [parameterName: entries])
-        try await client.post("\(action.collection.listPath)/\(objectID)/assign", version: action.collection.version, body: body)
+        return target
     }
 
     private func createGroup(named name: String, client: GraphClient) async throws -> String {

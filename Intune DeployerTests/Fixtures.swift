@@ -1,4 +1,5 @@
 import Foundation
+@testable import Intune_Deployer
 
 /// Builds a throwaway baseline-source folder on disk from fixture content, so
 /// tests exercise the real recursive scan including folder-name detection.
@@ -229,4 +230,17 @@ enum Fixtures {
     #!/bin/zsh
     echo "battery: 93%"
     """
+}
+
+// MARK: - Assignment test helpers
+
+/// Edits the first target of an intent, creating it when absent — keeps the
+/// tests written for single-target assignments readable.
+nonisolated extension AssignmentIntent {
+    var first: AssignmentTarget {
+        get { targets.first ?? AssignmentTarget() }
+        set {
+            if targets.isEmpty { targets = [newValue] } else { targets[0] = newValue }
+        }
+    }
 }

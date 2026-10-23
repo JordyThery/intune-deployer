@@ -161,22 +161,40 @@ struct LiveTenantTests {
 
         // Temporary profile reusing the real registration and cached account.
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
+        intent.first.scope = .allDevices
         let scriptItem = try #require(items.first { $0.type == .shellScript })
-        var profile = TenantProfile(
+        var assignments = [scriptItem.id: intent]
+
+        // Multiple targets with an exclusion, using two existing groups so
+        // the test never creates (and has to clean up) directory objects.
+        let session = TenantSession(auth: auth, activityLog: ActivityLog())
+        let readClient = session.client(for: realProfile, scopes: GraphScopes.planRead)
+        let groupList = try await readClient.get(GroupPage.self, "groups?$top=2&$select=id,displayName", version: .v1)
+        let complianceItem = try #require(items.first { $0.type == .compliancePolicy && $0.platform == .macOS })
+        let multiTarget = groupList.value.count == 2
+        if multiTarget {
+            assignments[complianceItem.id] = AssignmentIntent(targets: [
+                AssignmentTarget(scope: .allDevices),
+                AssignmentTarget(scope: .group, groupName: groupList.value[0].displayName),
+                AssignmentTarget(kind: .exclude, scope: .group, groupName: groupList.value[1].displayName),
+            ])
+        } else {
+            print("LiveTenantTests: fewer than two groups, skipping the multi-target check")
+        }
+
+        let profile = TenantProfile(
             displayName: "AUTOTEST \(realProfile.displayName)",
             clientID: realProfile.clientID,
             tenantID: realProfile.tenantID,
             namingPrefix: "[AUTOTEST]",
             variables: ["OrgName": "AutoTest", "EnrollmentProfileName": "AutoTest ADE"],
             selectedItemIDs: Set(items.map(\.id)),
-            assignments: [scriptItem.id: intent],
+            assignments: assignments,
             accountIdentifier: realProfile.accountIdentifier
         )
         auth.restoreAccount(for: profile)
         try #require(auth.isSignedIn(profile), "cached account did not restore for the temporary profile")
 
-        let session = TenantSession(auth: auth, activityLog: ActivityLog())
         let cleanupClient = session.client(for: profile, scopes: GraphScopes.applyScopes(allowGroupCreation: false))
 
         // 0. Remove leftovers from any previously interrupted run.
@@ -208,6 +226,21 @@ struct LiveTenantTests {
         }
         #expect(plan.unchangedCount == 10, "expected 10 unchanged, got \(plan.unchangedCount)")
 
+        // The compliance policy carries both includes and the exclusion.
+        if multiTarget {
+            let policyID = try #require(plan.actions.first { $0.id == complianceItem.id }?.existingObjectID)
+            let remote = try await readClient.listRaw("\(TenantCollection.compliancePolicies.listPath)/\(policyID)/assignments", version: .v1)
+            let types = remote.compactMap { body -> String? in
+                let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+                return (dict?["target"] as? [String: Any])?["@odata.type"] as? String
+            }
+            #expect(types.sorted() == [
+                "#microsoft.graph.allDevicesAssignmentTarget",
+                "#microsoft.graph.exclusionGroupAssignmentTarget",
+                "#microsoft.graph.groupAssignmentTarget",
+            ], "remote assignment targets: \(types)")
+        }
+
         // 4. Edit one file → exactly that item plans as an update.
         let scriptURL = fixtureRoot.appending(path: "Scripts/greeting.sh")
         let edited = Fixtures.scriptWithOptionsDirective + "\necho edited\n"
@@ -217,6 +250,27 @@ struct LiveTenantTests {
         plan = try #require(session.currentPlan)
         #expect(plan.updateCount == 1, "expected 1 update after editing the script, got \(plan.updateCount)")
         #expect(plan.unchangedCount == 9)
+
+        // 4b. A changed Settings Catalog value is reported by setting name.
+        let catalogURL = fixtureRoot.appending(path: "Settings Catalog/gatekeeper.json")
+        try Data(Fixtures.settingsCatalogJSON.replacingOccurrences(of: "allowcontentcaching_false", with: "allowcontentcaching_true").utf8)
+            .write(to: catalogURL)
+        session.currentPlan = nil
+        await session.plan(profile: profile, items: items, sourceStore: sourceStore)
+        plan = try #require(session.currentPlan)
+        let catalogAction = try #require(plan.actions.first { $0.collection == .settingsCatalog && $0.settingChanges.count == 1 })
+        let change = try #require(catalogAction.settingChanges.first)
+        #expect(change.kind == .changed)
+        let definition = try #require(plan.settingDefinitions[change.definitionID], "definition \(change.definitionID) was not resolved")
+        #expect(!definition.displayName.isEmpty)
+        #expect(change.newValue.flatMap { definition.options[$0] } != nil, "option name missing for \(change.newValue ?? "")")
+        print("Live settings change: \(definition.displayName) → \(change.newValue.flatMap { definition.options[$0] } ?? "?")")
+        // Restore the file and re-plan, so only the script update is applied.
+        try Data(Fixtures.settingsCatalogJSON.utf8).write(to: catalogURL)
+        session.currentPlan = nil
+        await session.plan(profile: profile, items: items, sourceStore: sourceStore)
+        plan = try #require(session.currentPlan)
+        #expect(plan.updateCount == 1)
 
         // 5. Apply the update, then delete every test object precisely.
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: sourceStore)
@@ -238,4 +292,13 @@ struct LiveTenantTests {
         #expect(deletedCount == 10, "deleted \(deletedCount) of 10 (final sweep removed \(swept))")
         print("Live lifecycle complete: 10 created, 1 updated, \(deletedCount) deleted, \(swept) swept")
     }
+}
+
+/// One page of `GET /groups` with only the fields the live test needs.
+private nonisolated struct GroupPage: Decodable, Sendable {
+    struct Group: Decodable, Sendable {
+        let id: String
+        let displayName: String
+    }
+    let value: [Group]
 }

@@ -49,7 +49,7 @@ nonisolated enum AsBuiltReport {
             lines.append("| --- | --- |")
             lines.append("| Type | \(action.collection.displayName) |")
             lines.append("| Action | \(action.kind.label) |")
-            lines.append("| Assignment | \(mdEscape(assignmentDescription(action.assignment))) |")
+            lines.append("| Assignment | \(mdEscape(assignmentDescription(action.assignments))) |")
             lines.append("| Identity tag | `\(ItemIdentity.tag(forShortID: action.id))` |")
             lines.append("")
             for warning in action.warnings {
@@ -116,7 +116,7 @@ nonisolated enum AsBuiltReport {
             body += "<table>"
             body += "<tr><th>Type</th><td>\(escape(action.collection.displayName))</td></tr>"
             body += "<tr><th>Action</th><td>\(escape(action.kind.label))</td></tr>"
-            body += "<tr><th>Assignment</th><td>\(escape(assignmentDescription(action.assignment)))</td></tr>"
+            body += "<tr><th>Assignment</th><td>\(escape(assignmentDescription(action.assignments)))</td></tr>"
             body += "<tr><th>Identity tag</th><td><code>\(escape(ItemIdentity.tag(forShortID: action.id)))</code></td></tr>"
             body += "</table>"
             for warning in action.warnings {
@@ -156,13 +156,23 @@ nonisolated enum AsBuiltReport {
 
     // MARK: - Shared helpers
 
-    static func assignmentDescription(_ assignment: ResolvedAssignment?) -> String {
-        guard let assignment else { return "Not assigned (left untouched)" }
+    static func assignmentDescription(_ assignments: [ResolvedAssignment]?) -> String {
+        guard let assignments else { return "Not assigned (left untouched)" }
+        guard !assignments.isEmpty else { return "No targets" }
+        return assignments.map(targetDescription).joined(separator: "; ")
+    }
+
+    static func targetDescription(_ assignment: ResolvedAssignment) -> String {
         var text: String
         switch assignment.target {
         case .allDevices: text = "All devices"
         case .allUsers: text = "All users"
         case .group(_, let name): text = "Group “\(name)”"
+        }
+        if assignment.isExclusion {
+            // Exclusions always target a group.
+            if case .group(_, let name) = assignment.target { return "Excluding group “\(name)”" }
+            return "Excluding \(text)"
         }
         if let filter = assignment.filter {
             let name: String

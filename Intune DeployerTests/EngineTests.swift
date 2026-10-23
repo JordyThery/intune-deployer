@@ -343,8 +343,8 @@ struct PlanEngineTests {
 
     @Test func missingGroupIsErrorUnlessCreationAllowed() {
         var intent = AssignmentIntent()
-        intent.mode = .group
-        intent.groupName = "macOS Pilots"
+        intent.first.scope = .group
+        intent.first.groupName = "macOS Pilots"
 
         let (deniedInput, item) = scriptInput(
             assignments: ["": intent],
@@ -376,8 +376,8 @@ struct PlanEngineTests {
 
     @Test func dynamicGroupProducesWarning() {
         var intent = AssignmentIntent()
-        intent.mode = .group
-        intent.groupName = "Dynamic Macs"
+        intent.first.scope = .group
+        intent.first.groupName = "Dynamic Macs"
         let (base, item) = scriptInput(groups: ["Dynamic Macs": .found(id: "g1", isDynamic: true)])
         var profile = base.profile
         profile.assignments = [item.id: intent]
@@ -397,8 +397,8 @@ struct PlanEngineTests {
         // Shell scripts cannot carry assignment filters in Intune: the
         // assignment survives, the filter is dropped with a warning.
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = "Some Filter"
+        intent.first.scope = .allDevices
+        intent.first.filterName = "Some Filter"
         let (base, item) = scriptInput()
         var profile = base.profile
         profile.assignments = [item.id: intent]
@@ -411,15 +411,15 @@ struct PlanEngineTests {
             knownSettingDefinitionIDs: nil
         ))
         let action = plan.actions.first
-        #expect(action?.assignment?.target == .allDevices)
-        #expect(action?.assignment?.filter == nil)
+        #expect(action?.assignments?.first?.target == .allDevices)
+        #expect(action?.assignments?.first?.filter == nil)
         #expect(action?.warnings.contains { $0.contains("filters") } == true)
         #expect(!plan.hasErrors)
     }
 
     @Test func typeDefaultAssignmentAppliesWhenItemHasNoIntent() {
         var defaultIntent = AssignmentIntent()
-        defaultIntent.mode = .allDevices
+        defaultIntent.first.scope = .allDevices
         let (base, _) = scriptInput()
         var profile = base.profile
         profile.defaultAssignments = [.shellScript: defaultIntent]
@@ -431,13 +431,13 @@ struct PlanEngineTests {
             groups: [:],
             knownSettingDefinitionIDs: nil
         ))
-        #expect(plan.actions.first?.assignment?.target == .allDevices)
+        #expect(plan.actions.first?.assignments?.first?.target == .allDevices)
         #expect(!plan.hasErrors)
     }
 
     @Test func explicitIntentOverridesTypeDefault() {
         var defaultIntent = AssignmentIntent()
-        defaultIntent.mode = .allDevices
+        defaultIntent.first.scope = .allDevices
         let (base, item) = scriptInput()
         var profile = base.profile
         profile.defaultAssignments = [.shellScript: defaultIntent]
@@ -451,28 +451,28 @@ struct PlanEngineTests {
             groups: [:],
             knownSettingDefinitionIDs: nil
         ))
-        #expect(plan.actions.first?.assignment == nil)
+        #expect(plan.actions.first?.assignments == nil)
     }
 
     @Test func assignmentFiltersIgnoreAllIntents() {
         // Filters cannot be assigned: neither a type default nor an explicit
         // per-item intent may produce an assignment for one.
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
+        intent.first.scope = .allDevices
         let profile = TenantProfile(
             displayName: "T", tenantID: "t",
             assignments: ["abc": intent],
             defaultAssignments: [.assignmentFilter: intent]
         )
-        #expect(profile.effectiveAssignment(for: "abc", type: .assignmentFilter).mode == AssignmentIntent.Mode.none)
-        #expect(profile.effectiveAssignment(for: "other", type: .assignmentFilter).mode == AssignmentIntent.Mode.none)
+        #expect(profile.effectiveAssignment(for: "abc", type: .assignmentFilter).leavesUnchanged)
+        #expect(profile.effectiveAssignment(for: "other", type: .assignmentFilter).leavesUnchanged)
     }
 
     @Test func defaultAssignmentsSurviveProfileEncoding() throws {
         var defaultIntent = AssignmentIntent()
-        defaultIntent.mode = .group
-        defaultIntent.groupName = "macOS Pilots"
-        defaultIntent.filterName = "ADE"
+        defaultIntent.first.scope = .group
+        defaultIntent.first.groupName = "macOS Pilots"
+        defaultIntent.first.filterName = "ADE"
         let profile = TenantProfile(
             displayName: "T", clientID: "c", tenantID: "t",
             defaultAssignments: [.settingsCatalog: defaultIntent]
@@ -485,13 +485,13 @@ struct PlanEngineTests {
         let legacy = Data(#"{"id":"11111111-2222-3333-4444-555555555555","displayName":"Old","tenantID":"t"}"#.utf8)
         let old = try JSONDecoder().decode(TenantProfile.self, from: legacy)
         #expect(old.defaultAssignments.isEmpty)
-        #expect(old.effectiveAssignment(for: "x", type: .shellScript).mode == AssignmentIntent.Mode.none)
+        #expect(old.effectiveAssignment(for: "x", type: .shellScript).leavesUnchanged)
     }
 
     @Test func builtInFilterTemplateNeedsItsVariable() {
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = BuiltInFilterTemplate.name(for: .macOS)
+        intent.first.scope = .allDevices
+        intent.first.filterName = BuiltInFilterTemplate.name(for: .macOS)
         // Must be a type that supports assignment filters — on scripts the
         // filter would be stripped with a warning instead.
         let item = makeItem("sc/updates.json", type: .settingsCatalog)

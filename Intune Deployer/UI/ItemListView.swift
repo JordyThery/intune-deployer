@@ -187,15 +187,11 @@ struct ItemListView: View {
         Divider()
         Menu("Assign To") {
             Button("Type default") { setAssignmentEntries(ids: ids, intent: nil) }
+            Button("Leave unchanged") { setAssignmentEntries(ids: ids, intent: AssignmentIntent()) }
             Divider()
-            ForEach(AssignmentIntent.Mode.allCases.filter { $0 != .group }, id: \.self) { mode in
-                Button(mode.displayName) {
-                    var intent = AssignmentIntent()
-                    intent.mode = mode
-                    setAssignmentEntries(ids: ids, intent: intent)
-                }
-            }
-            // Groups and filters need names — use the assignment editor.
+            Button("All devices") { setAssignmentEntries(ids: ids, intent: .single(.allDevices)) }
+            Button("All users") { setAssignmentEntries(ids: ids, intent: .single(.allUsers)) }
+            // Groups, exclusions and filters need names — use the assignment editor.
         }
         .disabled(!hasProfile || ids.isEmpty)
     }

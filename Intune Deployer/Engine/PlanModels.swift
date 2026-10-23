@@ -34,9 +34,13 @@ nonisolated struct PlanItemAction: Sendable, Identifiable {
     let payload: Data
     /// Tenant object ID when updating.
     let existingObjectID: String?
-    /// Resolved assignment; nil means "leave assignments untouched" (intent
-    /// .none). Posting happens via the /assign action and replaces the set.
-    let assignment: ResolvedAssignment?
+    /// Resolved include/exclude targets; nil means "leave assignments
+    /// untouched". Posting happens via the /assign action and replaces the
+    /// whole set.
+    let assignments: [ResolvedAssignment]?
+    /// Setting-level changes of a Settings Catalog update (empty otherwise);
+    /// the raw field changes stay in `kind`.
+    var settingChanges: [SettingChange] = []
     let warnings: [String]
 }
 
@@ -84,6 +88,9 @@ nonisolated struct Plan: Sendable {
     var filtersToCreate: [PlannedFilterCreation] = []
     var orphans: [OrphanedObject] = []
     var issues: [PlanIssue] = []
+    /// Names for the setting definitions the plan's setting changes refer
+    /// to; filled after planning, missing entries fall back to the ID.
+    var settingDefinitions: [String: SettingDefinitionInfo] = [:]
 
     var errors: [PlanIssue] { issues.filter { $0.severity == .error } }
     var hasErrors: Bool { !errors.isEmpty }

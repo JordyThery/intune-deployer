@@ -1,18 +1,18 @@
 import SwiftUI
 
-/// Edits the assignment intent of one or more items for the active tenant
-/// profile. With several items, differing values show as "Mixed" and any
-/// change applies to every item.
+/// Edits the assignment of one or more items for the active tenant profile:
+/// the type default, "leave unchanged", or a list of include/exclude targets.
+/// With several items, differing assignments show as "Mixed" and any change
+/// applies to every item.
 struct AssignmentEditorView: View {
     @Environment(TenantStore.self) private var tenantStore
     let items: [InferredItem]
     let profile: TenantProfile
 
-    /// What the mode picker can show. An item without a stored intent follows
-    /// its type default from the tenant profile.
-    private enum ModeChoice: Hashable {
+    private enum Choice: Hashable {
         case typeDefault
-        case mode(AssignmentIntent.Mode)
+        case leaveUnchanged
+        case targets
         case mixed
     }
 
@@ -20,17 +20,41 @@ struct AssignmentEditorView: View {
         items.map { profile.assignments[$0.id] }
     }
 
-    private var modeChoice: ModeChoice {
+    /// Items count as sharing an assignment when their targets differ only
+    /// in what is adapted per item: the platform of the built-in filter
+    /// template, and filters on types without filter support.
+    private var choice: Choice {
         let stored = storedIntents
         if stored.allSatisfy({ $0 == nil }) { return .typeDefault }
-        let modes = Set(stored.map { $0?.mode })
-        return modes.count == 1 ? .mode(stored[0]?.mode ?? .none) : .mixed
+        let comparable = Set(zip(items, stored).map { item, intent in intent.map { Self.comparable($0, for: item) } })
+        guard comparable.count == 1, let shared = stored.first ?? nil else { return .mixed }
+        return shared.leavesUnchanged ? .leaveUnchanged : .targets
     }
 
-    /// The mode the fields below the picker belong to (nil = no fields).
-    private var editedMode: AssignmentIntent.Mode? {
-        if case .mode(let mode) = modeChoice { return mode }
-        return nil
+    private static func comparable(_ intent: AssignmentIntent, for item: InferredItem) -> AssignmentIntent {
+        var intent = intent
+        for index in intent.targets.indices {
+            if !item.type.supportsAssignmentFilters {
+                intent.targets[index].filterName = ""
+            } else if BuiltInFilterTemplate.platform(forName: intent.targets[index].trimmedFilterName) != nil {
+                intent.targets[index].filterName = BuiltInFilterTemplate.name(for: .macOS)
+            }
+        }
+        return intent
+    }
+
+    /// The shared targets written to one item: filters are dropped where
+    /// unsupported and the built-in template follows the item's platform.
+    private static func adapted(_ targets: [AssignmentTarget], for item: InferredItem) -> [AssignmentTarget] {
+        targets.map { target in
+            var target = target
+            if !item.type.supportsAssignmentFilters {
+                target.filterName = ""
+            } else if BuiltInFilterTemplate.platform(forName: target.trimmedFilterName) != nil {
+                target.filterName = BuiltInFilterTemplate.name(for: item.platform)
+            }
+            return target
+        }
     }
 
     var body: some View {
@@ -38,116 +62,67 @@ struct AssignmentEditorView: View {
             ? "Assignment — \(profile.displayName)"
             : "Assignment for \(items.count) Items — \(profile.displayName)") {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Assign to", selection: modeBinding) {
-                    if modeChoice == .mixed {
-                        Text("Mixed").tag(ModeChoice.mixed)
+                Picker("Assign to", selection: choiceBinding) {
+                    if choice == .mixed {
+                        Text("Mixed").tag(Choice.mixed)
                         Divider()
                     }
-                    Text("Type default").tag(ModeChoice.typeDefault)
-                    Divider()
-                    ForEach(AssignmentIntent.Mode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(ModeChoice.mode(mode))
-                    }
+                    Text("Type default").tag(Choice.typeDefault)
+                    Text("Leave unchanged").tag(Choice.leaveUnchanged)
+                    Text("Specific targets").tag(Choice.targets)
                 }
                 .pickerStyle(.menu)
 
-                if modeChoice == .typeDefault {
-                    Text(typeDefaultHint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if modeChoice == .mixed {
-                    Text("The selected items have different assignments. Choosing a value applies it to all of them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if editedMode == .group {
-                    TextField("Group name", text: binding(\.groupName),
-                              prompt: Text(mixedPrompt(\.groupName, fallback: "Static Entra security group")))
-                    if !profile.allowGroupCreation {
-                        Text("Missing groups are a plan error unless group creation is enabled in the tenant profile.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Shell scripts and custom attributes cannot carry assignment
-                // filters in Intune — hide the fields for them.
-                if let editedMode, editedMode != .none,
-                   items.contains(where: { $0.type.supportsAssignmentFilters }) {
-                    HStack {
-                        TextField("Filter name", text: binding(\.filterName),
-                                  prompt: Text(mixedPrompt(\.filterName, fallback: "Assignment filter (optional)")))
-                        Picker("Filter mode", selection: binding(\.filterMode)) {
-                            Text("Include").tag(AssignmentIntent.FilterMode.include)
-                            Text("Exclude").tag(AssignmentIntent.FilterMode.exclude)
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                        Menu {
-                            Button("Use Built-in ADE Filter Template") { applyTemplateFilter() }
-                        } label: {
-                            Image(systemName: "sparkles")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .help("The built-in ADE filter is created at apply time from: \(BuiltInFilterTemplate.rule)")
-                        .accessibilityLabel("Filter templates")
-                    }
-                    if items.contains(where: { !$0.type.supportsAssignmentFilters }) {
-                        Text("Intune does not support filters on shell scripts or custom attributes — those items are assigned without the filter.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Install intent only exists for apps.
-                if let editedMode, editedMode != .none, items.contains(where: { $0.type == .app }) {
-                    Picker("Install intent", selection: binding(\.appIntent)) {
-                        ForEach(AssignmentIntent.AppIntent.allCases, id: \.self) { intent in
-                            Text(intent.displayName).tag(intent)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    if items.contains(where: { $0.type != .app }) {
-                        Text("The install intent applies to the app items only.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if bindingValueIsAvailable {
-                        Text("Available apps are offered in Company Portal and need a user assignment (All users or a user group).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                switch choice {
+                case .typeDefault:
+                    caption(typeDefaultHint)
+                case .leaveUnchanged:
+                    caption("The item's existing assignments in Intune are not changed.")
+                case .mixed:
+                    caption("The selected items have different assignments. Choosing an option applies it to all of them.")
+                case .targets:
+                    AssignmentTargetsEditor(
+                        targets: targetsBinding,
+                        supportsFilters: items.contains { $0.type.supportsAssignmentFilters },
+                        showsAppIntent: items.contains { $0.type == .app },
+                        applyTemplate: applyTemplateFilter
+                    )
+                    notes
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    /// Each item gets the ADE template for its own platform, so a
-    /// mixed-platform selection stays valid.
-    private func applyTemplateFilter() {
-        mutateProfile { current in
-            for item in items where item.type.supportsAssignmentFilters {
-                var intent = current.assignments[item.id]
-                    ?? current.effectiveAssignment(for: item.id, type: item.type)
-                intent.filterName = BuiltInFilterTemplate.name(for: item.platform)
-                current.assignments[item.id] = intent
+    @ViewBuilder
+    private var notes: some View {
+        let targets = sharedTargets
+        if targets.contains(where: { $0.scope == .group }), !profile.allowGroupCreation {
+            caption("Missing groups are a plan error unless group creation is enabled in the tenant profile.")
+        }
+        if items.contains(where: { !$0.type.supportsAssignmentFilters }),
+           items.contains(where: { $0.type.supportsAssignmentFilters }) {
+            caption("Intune does not support filters on shell scripts or custom attributes — those items are assigned without filters.")
+        }
+        if items.contains(where: { $0.type == .app }) {
+            if items.contains(where: { $0.type != .app }) {
+                caption("The install intent applies to the app items only.")
+            } else if targets.contains(where: { $0.kind == .include && $0.appIntent == .available }) {
+                caption("Available apps are offered in Company Portal and need a user assignment (All users or a user group).")
             }
         }
     }
 
-    private var bindingValueIsAvailable: Bool {
-        commonValue(\.appIntent) == .available
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     // MARK: - Type default hint
 
     private var typeDefaultHint: String {
         let types = Set(items.map(\.type))
-        if types == [.assignmentFilter] {
-            return "Assignment filters cannot be assigned."
-        }
         if types.count == 1, let type = types.first {
             if let intent = profile.defaultAssignments[type] {
                 return "Default for \(type.displayName): \(intent.summary). Set in the tenant profile."
@@ -159,24 +134,36 @@ struct AssignmentEditorView: View {
 
     // MARK: - Bindings
 
-    private var modeBinding: Binding<ModeChoice> {
+    /// The shared target list while all items have the same one, read from
+    /// an item that supports filters so they show.
+    private var sharedTargets: [AssignmentTarget] {
+        let source = items.first { $0.type.supportsAssignmentFilters } ?? items.first
+        return source.flatMap { profile.assignments[$0.id]?.targets } ?? []
+    }
+
+    private var choiceBinding: Binding<Choice> {
         Binding(
-            get: { modeChoice },
-            set: { choice in
-                switch choice {
+            get: { choice },
+            set: { newChoice in
+                switch newChoice {
                 case .typeDefault:
                     mutateProfile { current in
                         for item in items { current.assignments[item.id] = nil }
                     }
-                case .mode(let mode):
-                    // Seed new entries from the item's effective intent so
-                    // switching away from a default keeps its field values.
+                case .leaveUnchanged:
                     mutateProfile { current in
+                        for item in items { current.assignments[item.id] = AssignmentIntent() }
+                    }
+                case .targets:
+                    // Start from the items' effective assignment when they
+                    // share one, so switching away from a default keeps it.
+                    mutateProfile { current in
+                        let effective = Set(items.map { current.effectiveAssignment(for: $0.id, type: $0.type) })
+                        let seed = effective.count == 1 && !(effective.first?.leavesUnchanged ?? true)
+                            ? effective.first!.targets
+                            : [AssignmentTarget()]
                         for item in items {
-                            var intent = current.assignments[item.id]
-                                ?? current.effectiveAssignment(for: item.id, type: item.type)
-                            intent.mode = mode
-                            current.assignments[item.id] = intent
+                            current.assignments[item.id] = AssignmentIntent(targets: Self.adapted(seed, for: item))
                         }
                     }
                 case .mixed:
@@ -186,35 +173,26 @@ struct AssignmentEditorView: View {
         )
     }
 
-    /// Common value across all items; empty when they differ (the text field
-    /// then shows a "Mixed" prompt).
-    private func commonValue<T: Hashable>(_ keyPath: KeyPath<AssignmentIntent, T>) -> T? {
-        let values = Set(items.map {
-            (profile.assignments[$0.id] ?? AssignmentIntent())[keyPath: keyPath]
-        })
-        return values.count == 1 ? values.first : nil
-    }
-
-    private func mixedPrompt(_ keyPath: KeyPath<AssignmentIntent, String>, fallback: String) -> String {
-        items.count > 1 && commonValue(keyPath) == nil ? "Mixed — type to replace" : fallback
-    }
-
-    private func binding<T: Hashable>(_ keyPath: WritableKeyPath<AssignmentIntent, T>) -> Binding<T> {
+    private var targetsBinding: Binding<[AssignmentTarget]> {
         Binding(
-            get: { commonValue(keyPath) ?? AssignmentIntent()[keyPath: keyPath] },
-            set: { newValue in update { $0[keyPath: keyPath] = newValue } }
+            get: { sharedTargets },
+            set: { newTargets in
+                mutateProfile { current in
+                    for item in items {
+                        current.assignments[item.id] = AssignmentIntent(targets: Self.adapted(newTargets, for: item))
+                    }
+                }
+            }
         )
     }
 
-    /// Applies a change to every item's stored intent.
-    private func update(_ change: (inout AssignmentIntent) -> Void) {
-        mutateProfile { current in
-            for item in items {
-                var intent = current.assignments[item.id] ?? AssignmentIntent()
-                change(&intent)
-                current.assignments[item.id] = intent
-            }
-        }
+    /// Each item gets the ADE template for its own platform (see `adapted`),
+    /// so a mixed-platform selection stays valid.
+    private func applyTemplateFilter(at index: Int) {
+        var targets = sharedTargets
+        guard targets.indices.contains(index) else { return }
+        targets[index].filterName = BuiltInFilterTemplate.name(for: .macOS)
+        targetsBinding.wrappedValue = targets
     }
 
     private func mutateProfile(_ change: (inout TenantProfile) -> Void) {

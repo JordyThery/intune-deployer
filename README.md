@@ -171,15 +171,20 @@ time; Apply is blocked while any selected item has an unresolved token.
 
 ### Assignments
 
-Per item and per tenant: leave unchanged, all devices, all users, or a static Entra group
-resolved by display name (optionally created on Apply when enabled in the
-profile). The tenant profile can also set a **default assignment per item
-type** (e.g. all shell scripts → all devices); items without their own
+Per item and per tenant: leave unchanged, or one or more targets — all
+devices, all users, or a static Entra group resolved by display name
+(optionally created on Apply when enabled in the profile). Groups can also be
+**excluded**; exclusions take precedence in Intune and cannot carry a filter.
+Including and excluding the same group is a plan error. Applying an item's
+assignments replaces the full set in Intune; if any target cannot be
+resolved, the plan reports an error and the existing set is left as it is.
+The tenant profile can also set **default targets per item type** (e.g. all
+shell scripts → all devices); items without their own
 assignment follow it, and an item's editor can override it or switch back to
 **Type default**. Select several items (⇧/⌘-click, ⌘A) to edit their
 assignments in one place or use the right-click menu; the list header
 checkbox and the **Selection** toolbar menu include or exclude everything
-currently shown. Assignments can carry an include/exclude assignment filter
+currently shown. Included targets can carry an include/exclude assignment filter
 (except on shell scripts and custom attributes — Intune does not support
 filters there, so the app hides the fields and plans them without one). A
 filter's platform must match the item's; built-in ADE filter templates are
@@ -250,7 +255,11 @@ and release tag are shown with every item.
 
 - Plan (⌘P) is read-only and shows creates, field-level update diffs,
   unchanged items, warnings and errors; Apply stays disabled while errors
-  exist.
+  exist. Settings Catalog updates list changed settings by name and value
+  (e.g. *Restrictions › Allow Content Caching*, True → False); switch to
+  **Raw** to see the field-level JSON changes. Reordered settings are not
+  reported as changes; settings whose names cannot be read from the tenant
+  show their definition ID.
 - Orphaned objects (tagged but no longer selected) are only deleted when
   explicitly ticked.
 - **Remove Baseline** deletes every tagged object in a tenant (including

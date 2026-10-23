@@ -150,7 +150,7 @@ struct PlanView: View {
             if !actions.isEmpty {
                 Section("\(title) (\(actions.count))") {
                     ForEach(actions) { action in
-                        PlanActionRow(action: action)
+                        PlanActionRow(action: action, definitions: plan.settingDefinitions)
                     }
                 }
             }
@@ -228,7 +228,7 @@ struct PlanView: View {
         return plan.createCount > 0
             || plan.updateCount > 0
             || !orphansToDelete.isEmpty
-            || plan.actions.contains { $0.assignment != nil }
+            || plan.actions.contains { $0.assignments != nil }
     }
 
     private var applySummary: String {
@@ -237,7 +237,7 @@ struct PlanView: View {
             "\(plan.createCount) create\(plan.createCount == 1 ? "" : "s")",
             "\(plan.updateCount) update\(plan.updateCount == 1 ? "" : "s")",
         ]
-        let assignmentCount = plan.actions.count { $0.assignment != nil }
+        let assignmentCount = plan.actions.count { $0.assignments != nil }
         if assignmentCount > 0 {
             parts.append("\(assignmentCount) assignment\(assignmentCount == 1 ? "" : "s")")
         }
@@ -268,7 +268,10 @@ struct PlanView: View {
 
 private struct PlanActionRow: View {
     let action: PlanItemAction
+    /// Names for setting definitions (missing entries fall back to the ID).
+    let definitions: [String: SettingDefinitionInfo]
     @State private var expanded = false
+    @State private var showsRaw = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -278,12 +281,13 @@ private struct PlanActionRow: View {
                     .frame(width: 20)
                 Text(action.displayName)
                 Spacer()
-                if let assignment = action.assignment {
-                    Text(assignmentLabel(assignment))
+                if let assignments = action.assignments {
+                    Text(assignmentLabel(assignments))
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
+                        .help(assignments.map(AsBuiltReport.targetDescription).joined(separator: "\n"))
                 }
                 Text(action.collection.displayName)
                     .font(.caption)
@@ -294,18 +298,35 @@ private struct PlanActionRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if case .update(let changes) = action.kind, !changes.isEmpty {
+            if case .update(let changes) = action.kind, !changes.isEmpty || !action.settingChanges.isEmpty {
                 DisclosureGroup(isExpanded: $expanded) {
-                    ForEach(changes) { change in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(change.path).font(.caption.monospaced().bold())
-                            Text("− \(change.oldValue)").font(.caption.monospaced()).foregroundStyle(.red)
-                            Text("+ \(change.newValue)").font(.caption.monospaced()).foregroundStyle(.green)
+                    // Settings Catalog updates read by setting name; the raw
+                    // field-level view stays one click away.
+                    if !action.settingChanges.isEmpty {
+                        Picker("Change view", selection: $showsRaw) {
+                            Text("Readable").tag(false)
+                            Text("Raw").tag(true)
                         }
-                        .padding(.vertical, 1)
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    if !action.settingChanges.isEmpty && !showsRaw {
+                        ForEach(action.settingChanges) { change in
+                            settingChangeRow(change)
+                        }
+                        // Non-setting fields (name, description, …) changed too.
+                        let otherFields = changes.filter { !$0.path.hasPrefix("settings") }
+                        ForEach(otherFields) { change in
+                            rawChangeRow(change)
+                        }
+                    } else {
+                        ForEach(changes) { change in
+                            rawChangeRow(change)
+                        }
                     }
                 } label: {
-                    Text("\(changes.count) field change\(changes.count == 1 ? "" : "s")")
+                    Text(changeSummary(changes))
                         .font(.caption)
                 }
             }
@@ -313,12 +334,68 @@ private struct PlanActionRow: View {
         .padding(.vertical, 2)
     }
 
-    private func assignmentLabel(_ assignment: ResolvedAssignment) -> String {
+    private func changeSummary(_ changes: [FieldChange]) -> String {
+        if !action.settingChanges.isEmpty {
+            let count = action.settingChanges.count
+            let others = changes.count { !$0.path.hasPrefix("settings") }
+            let summary = "\(count) setting change\(count == 1 ? "" : "s")"
+            return others == 0 ? summary : summary + ", \(others) other field change\(others == 1 ? "" : "s")"
+        }
+        return "\(changes.count) field change\(changes.count == 1 ? "" : "s")"
+    }
+
+    private func rawChangeRow(_ change: FieldChange) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(change.path).font(.caption.monospaced().bold())
+            Text("− \(change.oldValue)").font(.caption.monospaced()).foregroundStyle(.red)
+            Text("+ \(change.newValue)").font(.caption.monospaced()).foregroundStyle(.green)
+        }
+        .padding(.vertical, 1)
+        .textSelection(.enabled)
+    }
+
+    /// The setting path (parent › setting) above "Old → New"; choice values
+    /// show their option names.
+    private func settingChangeRow(_ change: SettingChange) -> some View {
+        let names = (change.parentDefinitionIDs + [change.definitionID]).map(settingName)
+        let options = definitions[change.definitionID]?.options ?? [:]
+        func value(_ raw: String?) -> String {
+            guard let raw else { return "—" }
+            return options[raw] ?? raw
+        }
+        let detail: String = switch change.kind {
+        case .changed: "\(value(change.oldValue)) → \(value(change.newValue))"
+        case .added: "Added: \(value(change.newValue))"
+        case .removed: "Removed (was \(value(change.oldValue)))"
+        }
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(names.joined(separator: " › "))
+                .font(.caption.bold())
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(change.kind == .removed ? .red : change.kind == .added ? .green : .primary)
+        }
+        .padding(.vertical, 1)
+        .help(change.definitionID)
+        .textSelection(.enabled)
+    }
+
+    private func settingName(_ definitionID: String) -> String {
+        definitions[definitionID]?.displayName ?? definitionID
+    }
+
+    private func assignmentLabel(_ assignments: [ResolvedAssignment]) -> String {
+        guard assignments.count == 1, let assignment = assignments.first else {
+            return assignments.isEmpty ? "No targets" : "\(assignments.count) targets"
+        }
         let base: String
         switch assignment.target {
         case .allDevices: base = "All devices"
         case .allUsers: base = "All users"
         case .group(_, let name): base = name
+        }
+        if assignment.isExclusion {
+            return "Excluding \(base)"
         }
         var label = assignment.filter == nil ? base : "\(base) + filter"
         if assignment.appIntent == .available {

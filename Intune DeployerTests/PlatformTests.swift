@@ -286,30 +286,30 @@ struct PlatformPlanTests {
 
     @Test func crossPlatformFilterIsAnError() {
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = "Mac Filter"
+        intent.first.scope = .allDevices
+        intent.first.filterName = "Mac Filter"
         let item = makeItem("c.json", type: .compliancePolicy, platform: .iOSiPadOS)
         let result = plan(for: item, fixture: Fixtures.iosComplianceJSON, intent: intent,
                           existingFilters: [filterObject(name: "Mac Filter", platform: "macOS")])
         #expect(result.hasErrors)
-        #expect(result.actions.first?.assignment == nil)
+        #expect(result.actions.first?.assignments == nil)
     }
 
     @Test func matchingPlatformFilterResolves() {
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = "iOS Filter"
+        intent.first.scope = .allDevices
+        intent.first.filterName = "iOS Filter"
         let item = makeItem("c.json", type: .compliancePolicy, platform: .iOSiPadOS)
         let result = plan(for: item, fixture: Fixtures.iosComplianceJSON, intent: intent,
                           existingFilters: [filterObject(name: "iOS Filter", platform: "iOS")])
         #expect(!result.hasErrors)
-        #expect(result.actions.first?.assignment?.filter == .existing(id: "f-1"))
+        #expect(result.actions.first?.assignments?.first?.filter == .existing(id: "f-1"))
     }
 
     @Test func iosTemplateFilterIsCreatedWithIOSPlatform() {
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = BuiltInFilterTemplate.name(for: .iOSiPadOS)
+        intent.first.scope = .allDevices
+        intent.first.filterName = BuiltInFilterTemplate.name(for: .iOSiPadOS)
         let item = makeItem("c.json", type: .compliancePolicy, platform: .iOSiPadOS)
         let result = plan(for: item, fixture: Fixtures.iosComplianceJSON, intent: intent,
                           variables: ["EnrollmentProfileName": "Contoso iOS"])
@@ -320,8 +320,8 @@ struct PlatformPlanTests {
 
     @Test func macTemplateOnIOSItemIsAnError() {
         var intent = AssignmentIntent()
-        intent.mode = .allDevices
-        intent.filterName = BuiltInFilterTemplate.name(for: .macOS)
+        intent.first.scope = .allDevices
+        intent.first.filterName = BuiltInFilterTemplate.name(for: .macOS)
         let item = makeItem("c.json", type: .compliancePolicy, platform: .iOSiPadOS)
         let result = plan(for: item, fixture: Fixtures.iosComplianceJSON, intent: intent,
                           variables: ["EnrollmentProfileName": "Contoso"])
@@ -330,10 +330,10 @@ struct PlatformPlanTests {
 
     @Test func availableIntentNeedsUserAssignment() {
         var intent = AssignmentIntent()
-        intent.appIntent = .available
+        intent.first.appIntent = .available
         let item = makeItem("Tool.pkg", type: .app)
 
-        intent.mode = .allDevices
+        intent.first.scope = .allDevices
         var result = PlanEngine.makePlan(input: PlanInput(
             selectedItems: [.init(item: item, fileData: Data(), appInfo: AppPackageInfo(primaryBundleID: "b", primaryBundleVersion: "1", includedApps: []))],
             profile: makeProfile(item, intent: intent),
@@ -341,14 +341,14 @@ struct PlatformPlanTests {
         ))
         #expect(result.hasErrors)
 
-        intent.mode = .allUsers
+        intent.first.scope = .allUsers
         result = PlanEngine.makePlan(input: PlanInput(
             selectedItems: [.init(item: item, fileData: Data(), appInfo: AppPackageInfo(primaryBundleID: "b", primaryBundleVersion: "1", includedApps: []))],
             profile: makeProfile(item, intent: intent),
             existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil
         ))
         #expect(!result.hasErrors)
-        #expect(result.actions.first?.assignment?.appIntent == .available)
+        #expect(result.actions.first?.assignments?.first?.appIntent == .available)
     }
 
     @Test func platformChangeBecomesCreatePlusOrphan() throws {
@@ -391,8 +391,8 @@ struct PlatformPlanTests {
     @Test func intentsFromEarlierBuildsDecodeAsRequired() throws {
         let legacy = Data(#"{"mode":"allUsers","groupName":"","filterName":"","filterMode":"include"}"#.utf8)
         let intent = try JSONDecoder().decode(AssignmentIntent.self, from: legacy)
-        #expect(intent.appIntent == .required)
-        #expect(intent.mode == .allUsers)
+        #expect(intent.first.appIntent == .required)
+        #expect(intent.first.scope == .allUsers)
     }
 }
 
