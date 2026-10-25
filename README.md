@@ -57,8 +57,8 @@ that tenant:
 4. Copy the **Application (client) ID** and the **Directory (tenant) ID**
    (Overview page).
 
-In the app, add a tenant profile (sidebar → **Add Tenant Profile…**) with those two
-values, then sign in from the toolbar with an account that has sufficient
+In the app, add a tenant profile in **Settings › Connections** (the **+** button)
+with those two values, choose it in the toolbar, then sign in from the toolbar with an account that has sufficient
 Intune permissions in that tenant. Microsoft Graph permissions are requested
 incrementally and need admin consent on first use.
 
@@ -213,7 +213,7 @@ Intune, and the plan warns when it expires within 30 days.
 
 ## Exporting from a tenant
 
-Select a tenant profile in the sidebar to see its existing objects. Choose
+Select the tenant in use in the sidebar to see its existing objects. Choose
 **Export All** in the toolbar, or select objects and choose **Export…** from
 the context menu, then pick a folder. Each object is saved in the format the
 app reads back, grouped by platform and type (`macOS/Compliance`,
@@ -269,7 +269,7 @@ and release tag are shown with every item.
   Apple MDM push certificate and ADE token expiry), and the tenant view lists
   every object the app manages.
 - An as-built report (Markdown or HTML) can be exported after every Apply, and
-  tenant profiles can be exported and imported as JSON.
+  tenant profiles can be exported and imported as JSON (Settings › Connections).
 - The activity log (⌘⇧L) records every Graph request — never tokens or
   payloads.
 

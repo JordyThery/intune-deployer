@@ -43,6 +43,12 @@ struct IntuneDeployerApp: App {
             CommandGroup(after: .help) {
                 Button("Guided Tour") { tour.start() }
             }
+            // The toolbar picker's items, as JTKit's Connection menu.
+            ConnectionCommands(
+                store: tenantStore.connections,
+                selection: Binding(get: { tenantStore.selectedProfileID },
+                                   set: { tenantStore.selectedProfileID = $0 })
+            )
         }
 
         Window("Activity Log", id: "activity-log") {
@@ -56,10 +62,10 @@ struct IntuneDeployerApp: App {
 
         // JTKit's General tab starts with Appearance; item editing goes below
         // it. Connections and GitHub follow, and JTKit adds Updates last.
-        SettingsWindow(updates: updates) {
+        SettingsWindow(updates: updates, opensTabsByName: true) {
             SettingsContent.general
         } tabs: {
-            SettingsContent.tabs
+            SettingsContent.tabs(tenants: tenantStore, auth: auth)
         }
 
         AboutWindow(configuration: .intuneDeployer)

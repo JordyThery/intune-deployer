@@ -2,26 +2,20 @@ import JTKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// What the sidebar can select: baseline sources (multi) or a tenant profile.
+/// What the sidebar can select: baseline sources (multi) or the tenant in use.
 enum SidebarSelection: Hashable {
     case source(UUID)
     case tenant(UUID)
 }
 
-/// Sidebar: baseline sources with scan status, plus tenant profiles.
+/// Sidebar: baseline sources with scan status, plus the tenant in use.
 struct SidebarView: View {
     @Environment(SourceStore.self) private var store
     @Environment(TenantStore.self) private var tenantStore
-    @Environment(AuthManager.self) private var auth
     @Binding var selection: Set<SidebarSelection>
 
     @State private var isPickingFolder = false
     @State private var isAddingGitHubSource = false
-    @State private var isAddingProfile = false
-    @State private var isImportingProfile = false
-    @State private var editingProfile: TenantProfile?
-    @State private var profilePendingDeletion: TenantProfile?
-    @State private var importError: String?
 
     var body: some View {
         List(selection: $selection) {
@@ -66,8 +60,10 @@ struct SidebarView: View {
             }
             .tourAnchor(TourAnchorID.sources)
 
-            Section("Tenant Profiles") {
-                ForEach(tenantStore.profiles) { profile in
+            // Tenants are managed in Settings › Connections; the one in use
+            // (chosen in the toolbar) opens the tenant view here.
+            Section("Tenant") {
+                if let profile = tenantStore.selectedProfile {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(profile.displayName)
@@ -81,24 +77,19 @@ struct SidebarView: View {
                     }
                     .tag(SidebarSelection.tenant(profile.id))
                     .contextMenu {
-                        Button("Edit…") { editingProfile = profile }
-                        Button("Delete Tenant Profile…", role: .destructive) {
-                            profilePendingDeletion = profile
-                        }
+                        SettingsTabLink(SettingsTabName.connections) { Text("Edit Connection…") }
                     }
+                } else if tenantStore.profiles.isEmpty {
+                    SettingsTabLink(SettingsTabName.connections) {
+                        Label("Add Tenant Profile…", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    Text("Choose a tenant in the toolbar.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .selectionDisabled()
                 }
-                Button {
-                    isAddingProfile = true
-                } label: {
-                    Label("Add Tenant Profile…", systemImage: "plus")
-                }
-                .buttonStyle(.borderless)
-                Button {
-                    isImportingProfile = true
-                } label: {
-                    Label("Import Tenant Profile…", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderless)
             }
             .tourAnchor(TourAnchorID.tenantProfiles)
         }
@@ -113,65 +104,6 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $isAddingGitHubSource) {
             GitHubSourceEditorView()
-        }
-        .fileImporter(
-            isPresented: $isImportingProfile,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false
-        ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                importProfile(from: url)
-            }
-        }
-        .alert("Import Failed", isPresented: Binding(
-            get: { importError != nil },
-            set: { if !$0 { importError = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError ?? "")
-        }
-        .sheet(isPresented: $isAddingProfile) {
-            TenantProfileEditorView(profile: nil)
-        }
-        .sheet(item: $editingProfile) { profile in
-            TenantProfileEditorView(profile: profile)
-        }
-        .confirmationDialog(
-            "Delete the tenant profile “\(profilePendingDeletion?.displayName ?? "")”?",
-            isPresented: Binding(
-                get: { profilePendingDeletion != nil },
-                set: { if !$0 { profilePendingDeletion = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                guard let profile = profilePendingDeletion else { return }
-                selection.remove(.tenant(profile.id))
-                tenantStore.remove(id: profile.id)
-                Task { await auth.signOut(profile: profile) }
-                profilePendingDeletion = nil
-            }
-            Button("Cancel", role: .cancel) { profilePendingDeletion = nil }
-        } message: {
-            Text("Its item selection, variables and assignments are removed, and the profile's account is signed out. Objects in the tenant are not affected.")
-        }
-    }
-
-    private func importProfile(from url: URL) {
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try Data(contentsOf: url)
-            var profile = try JSONDecoder().decode(TenantProfile.self, from: data)
-            profile.accountIdentifier = nil // sign in on this machine
-            if tenantStore.profiles.contains(where: { $0.id == profile.id }) {
-                profile.id = UUID()
-                profile.displayName += " (imported)"
-            }
-            tenantStore.add(profile)
-        } catch {
-            importError = "Not a valid tenant profile: \(error.localizedDescription)"
         }
     }
 

@@ -104,6 +104,14 @@ struct ContentView: View {
         } message: {
             Text(authErrorMessage ?? "")
         }
+        .alert("Tenant Profile Not Saved", isPresented: Binding(
+            get: { tenantStore.saveError != nil },
+            set: { if !$0 { tenantStore.saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(tenantStore.saveError ?? "")
+        }
         .task {
             // Restore cached accounts for all profiles (keychain token cache).
             for profile in tenantStore.profiles {
@@ -139,17 +147,14 @@ struct ContentView: View {
 
     // MARK: - Toolbar pieces
 
+    /// JTKit's picker: the tenant in use, the saved tenants and "Edit
+    /// Connections…"; the Connection menu has the same items.
     private var tenantPicker: some View {
-        @Bindable var tenantStore = tenantStore
-        return Picker("Tenant", selection: $tenantStore.selectedProfileID) {
-            Text("No Tenant").tag(UUID?.none)
-            Divider()
-            ForEach(tenantStore.profiles) { profile in
-                Text(profile.displayName).tag(UUID?.some(profile.id))
-            }
-        }
-        .help("Active tenant profile")
-        .frame(minWidth: 140)
+        ConnectionPicker(
+            store: tenantStore.connections,
+            selection: Binding(get: { tenantStore.selectedProfileID },
+                               set: { tenantStore.selectedProfileID = $0 })
+        )
     }
 
     /// Sign-in state for the ACTIVE tenant profile (every tenant has its own

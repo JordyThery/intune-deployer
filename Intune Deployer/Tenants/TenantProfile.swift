@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 
 /// A tenant profile: which Entra tenant to deploy to and how.
 ///
@@ -56,6 +57,12 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         self.accountIdentifier = accountIdentifier
     }
 
+    /// The keys in tenants.json and exported profiles. Never rename them.
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, clientID, tenantID, namingPrefix, variables, selectedItemIDs,
+             assignments, defaultAssignments, allowGroupCreation, accountIdentifier
+    }
+
     /// Tolerant decoding so profiles saved by earlier builds (without
     /// clientID/accountIdentifier) keep loading.
     init(from decoder: any Decoder) throws {
@@ -73,6 +80,23 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         accountIdentifier = try container.decodeIfPresent(String.self, forKey: .accountIdentifier)
     }
 
+    /// The same keys and shape as before. The chosen items are written in
+    /// sorted order, so tenants.json only changes when its content does.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(clientID, forKey: .clientID)
+        try container.encode(tenantID, forKey: .tenantID)
+        try container.encode(namingPrefix, forKey: .namingPrefix)
+        try container.encode(variables, forKey: .variables)
+        try container.encode(selectedItemIDs.sorted(), forKey: .selectedItemIDs)
+        try container.encode(assignments, forKey: .assignments)
+        try container.encode(defaultAssignments, forKey: .defaultAssignments)
+        try container.encode(allowGroupCreation, forKey: .allowGroupCreation)
+        try container.encodeIfPresent(accountIdentifier, forKey: .accountIdentifier)
+    }
+
     var hasValidClientID: Bool {
         UUID(uuidString: clientID.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }
@@ -85,5 +109,22 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         guard type != .assignmentFilter else { return AssignmentIntent() }
         if let explicit = assignments[itemID] { return explicit }
         return defaultAssignments[type] ?? AssignmentIntent()
+    }
+}
+
+/// What JTKit's Settings › Connections shows and changes: the name, tenant ID
+/// and client ID. Everything else is the tenant's baseline, set in the main
+/// window.
+nonisolated extension TenantProfile: ConnectionRecord {
+    var connection: Connection {
+        get {
+            Connection(id: id, name: displayName, service: .intune, signIn: .microsoftInteractive,
+                       clientID: clientID, tenantID: tenantID)
+        }
+        set {
+            displayName = newValue.name
+            clientID = newValue.clientID
+            tenantID = newValue.tenantID
+        }
     }
 }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		087B41DE308EA69F00D0CB8A /* JTKitTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 087B41DD308EA69F00D0CB8A /* JTKitTestSupport */; };
 		AA00000000000000000000B1 /* MSAL in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D1 /* MSAL */; };
 		AA00000000000000000000B2 /* JTKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D2 /* JTKit */; };
 /* End PBXBuildFile section */
@@ -50,6 +51,7 @@
 		080E96C030810D100014F885 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				087B41DE308EA69F00D0CB8A /* JTKitTestSupport in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +62,7 @@
 			children = (
 				000000000000000000000010 /* Intune Deployer */,
 				080E96C430810D100014F885 /* Intune DeployerTests */,
+				087B41DC308EA69F00D0CB8A /* Frameworks */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +74,13 @@
 				080E96C330810D100014F885 /* Intune DeployerTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		087B41DC308EA69F00D0CB8A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -115,6 +125,9 @@
 				080E96C430810D100014F885 /* Intune DeployerTests */,
 			);
 			name = "Intune DeployerTests";
+			packageProductDependencies = (
+				087B41DD308EA69F00D0CB8A /* JTKitTestSupport */,
+			);
 			productName = "Intune DeployerTests";
 			productReference = 080E96C330810D100014F885 /* Intune DeployerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -516,12 +529,17 @@
 			repositoryURL = "https://github.com/JordyThery/JTKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.4.3;
+				minimumVersion = 0.5.5;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		087B41DD308EA69F00D0CB8A /* JTKitTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
+			productName = JTKitTestSupport;
+		};
 		AA00000000000000000000D1 /* MSAL */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */;
