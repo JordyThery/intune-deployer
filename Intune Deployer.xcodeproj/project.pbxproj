@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		AA00000000000000000000B1 /* MSAL in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D1 /* MSAL */; };
+		AA00000000000000000000B2 /* JTKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D2 /* JTKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +44,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				AA00000000000000000000B1 /* MSAL in Frameworks */,
+				AA00000000000000000000B2 /* JTKit in Frameworks */,
 			);
 		};
 		080E96C030810D100014F885 /* Frameworks */ = {
@@ -90,6 +92,7 @@
 			name = "Intune Deployer";
 			packageProductDependencies = (
 				AA00000000000000000000D1 /* MSAL */,
+				AA00000000000000000000D2 /* JTKit */,
 			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* Intune Deployer.app */;
@@ -146,6 +149,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */,
+				AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -507,6 +511,14 @@
 				version = 2.16.0;
 			};
 		};
+		AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/JordyThery/JTKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -514,6 +526,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */;
 			productName = MSAL;
+		};
+		AA00000000000000000000D2 /* JTKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
+			productName = JTKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

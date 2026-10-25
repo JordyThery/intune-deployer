@@ -1,3 +1,4 @@
+import JTKit
 import SwiftUI
 
 @main
@@ -7,7 +8,11 @@ struct IntuneDeployerApp: App {
     @State private var auth: AuthManager
     @State private var activityLog: ActivityLog
     @State private var session: TenantSession
-    @State private var updates = UpdateChecker()
+    @State private var updates = UpdateChecker(configuration: UpdateConfiguration(
+        owner: "JordyThery",
+        repository: "intune-deployer",
+        appName: "Intune Deployer"
+    ))
     @State private var tour = TourState()
 
     init() {

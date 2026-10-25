@@ -1,3 +1,4 @@
+import JTKit
 import SwiftUI
 
 /// Registration reference: every tenant gets its own app registration, and
@@ -6,7 +7,7 @@ struct SettingsView: View {
     @State private var gitHubToken = ""
     @State private var tokenStatus: String?
     // Same key UpdateChecker reads; unset means enabled.
-    @AppStorage("checksForUpdates") private var checksForUpdates = true
+    @AppStorage(UpdateChecker.automaticCheckKey) private var checksForUpdates = true
     // Same key ItemDetailView reads; unset means disabled.
     @AppStorage("enableItemEditing") private var enableItemEditing = false
 

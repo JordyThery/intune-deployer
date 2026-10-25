@@ -1,6 +1,15 @@
 {
-  "originHash" : "0210b0d8bdf78f3ea275a5e0688a6bda67366a571df9b9fc7728e8d3a46f78a2",
+  "originHash" : "b0e5f61205fa48b9180ac4d4cb844818ae927c522fafdbeda3684690966d5733",
   "pins" : [
+    {
+      "identity" : "jtkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/JordyThery/JTKit.git",
+      "state" : {
+        "revision" : "c63780afe2fe6bf9fd97752b9aa9aff14a1f3e50",
+        "version" : "0.2.0"
+      }
+    },
     {
       "identity" : "microsoft-authentication-library-for-objc",
       "kind" : "remoteSourceControl",
