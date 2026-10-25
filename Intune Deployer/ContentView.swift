@@ -7,7 +7,7 @@ struct ContentView: View {
     @Environment(TenantSession.self) private var session
     @Environment(AuthManager.self) private var auth
     @Environment(UpdateChecker.self) private var updates
-    @Environment(TourState.self) private var tour
+    @Environment(TourState<TourAnchorID>.self) private var tour
 
     @State private var sidebarSelection: Set<SidebarSelection> = []
     @State private var selectedItemIDs: Set<String> = []
@@ -34,7 +34,7 @@ struct ContentView: View {
                     platformFilter: $platformFilter
                 )
                 .navigationSplitViewColumnWidth(min: 300, ideal: 380)
-                .tourAnchor(.items)
+                .tourAnchor(TourAnchorID.items)
             }
         } detail: {
             Group {
@@ -52,7 +52,7 @@ struct ContentView: View {
                     )
                 }
             }
-            .tourAnchor(.detail)
+            .tourAnchor(TourAnchorID.detail)
         }
         .toolbar {
             ToolbarItem {

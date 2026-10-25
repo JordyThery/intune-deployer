@@ -13,7 +13,7 @@ struct IntuneDeployerApp: App {
         repository: "intune-deployer",
         appName: "Intune Deployer"
     ))
-    @State private var tour = TourState()
+    @State private var tour = IntuneDeployerTour.makeState()
 
     init() {
         let auth = AuthManager()
@@ -48,8 +48,10 @@ struct IntuneDeployerApp: App {
         }
 
         Window("Activity Log", id: "activity-log") {
-            ActivityLogView()
-                .environment(activityLog)
+            ActivityLogView(
+                log: activityLog,
+                emptyDescription: "Graph requests appear here as they happen."
+            )
                 .frame(minWidth: 640, minHeight: 320)
         }
         .keyboardShortcut("l", modifiers: [.command, .shift])

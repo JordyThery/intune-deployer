@@ -1,3 +1,4 @@
+import JTKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -63,7 +64,7 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.borderless)
             }
-            .tourAnchor(.sources)
+            .tourAnchor(TourAnchorID.sources)
 
             Section("Tenant Profiles") {
                 ForEach(tenantStore.profiles) { profile in
@@ -99,7 +100,7 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.borderless)
             }
-            .tourAnchor(.tenantProfiles)
+            .tourAnchor(TourAnchorID.tenantProfiles)
         }
         .fileImporter(
             isPresented: $isPickingFolder,

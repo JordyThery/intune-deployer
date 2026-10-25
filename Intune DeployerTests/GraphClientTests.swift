@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import Testing
 @testable import Intune_Deployer
 
@@ -33,12 +34,12 @@ nonisolated final class MockURLProtocol: URLProtocol {
 
 @Suite("Graph client", .serialized)
 struct GraphClientTests {
-    private func makeClient() -> GraphClient {
+    private func makeClient(activityLog: ActivityLog? = nil) -> GraphClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         return GraphClient(
             tokenProvider: { "test-token" },
-            activityLog: nil,
+            activityLog: activityLog,
             session: URLSession(configuration: config)
         )
     }
@@ -79,6 +80,34 @@ struct GraphClientTests {
         let thing = try await makeClient().get(Thing.self, "things/1", version: .v1)
         #expect(thing.id == "ok")
         #expect(callCount == 2)
+    }
+
+    @MainActor
+    @Test func networkErrorsAreLoggedAsFailed() async throws {
+        // First call loses the connection (no response, no status), then 200.
+        nonisolated(unsafe) var callCount = 0
+        MockURLProtocol.handler = { @Sendable _ in
+            callCount += 1
+            if callCount == 1 {
+                throw URLError(.networkConnectionLost)
+            }
+            return (200, [:], Data(#"{"id": "ok"}"#.utf8))
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let log = ActivityLog()
+        _ = try await makeClient(activityLog: log).get(Thing.self, "things/1", version: .v1)
+
+        #expect(log.entries.count == 2)
+        let lost = try #require(log.entries.first)
+        #expect(lost.category == "Graph")
+        #expect(lost.operation == "GET")
+        #expect(lost.detail.hasSuffix("/things/1"))
+        #expect(lost.status == nil)
+        #expect(lost.isFailure, "No response is shown as failed")
+        let answered = try #require(log.entries.last)
+        #expect(answered.status == 200)
+        #expect(!answered.isFailure)
     }
 
     @Test func failsFastOnNonRetryableError() async throws {

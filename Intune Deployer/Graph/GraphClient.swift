@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import OSLog
 
 nonisolated enum GraphVersion: String, Sendable {
@@ -292,13 +293,15 @@ actor GraphClient {
 
     // MARK: - Logging
 
+    /// `status` is nil when no response arrived; such entries are marked failed.
     private func log(method: String, url: URL, status: Int?, duration: TimeInterval, note: String?) async {
         let path = url.path()
         Self.logger.info("\(method, privacy: .public) \(path, privacy: .public) → \(status ?? -1) in \(String(format: "%.2fs", duration), privacy: .public)")
         if let activityLog {
             let entry = ActivityLogEntry(
-                date: .now, method: method, path: path,
-                status: status, duration: duration, note: note
+                category: "Graph", operation: method, detail: path,
+                status: status, duration: duration, note: note,
+                failedWithoutStatus: status == nil
             )
             await MainActor.run { activityLog.append(entry) }
         }
