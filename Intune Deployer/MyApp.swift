@@ -39,9 +39,7 @@ struct IntuneDeployerApp: App {
                 .task { await updates.checkAutomatically() }
         }
         .commands {
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { updates.checkManually() }
-            }
+            AppInfoCommands(appName: "Intune Deployer") { updates.checkManually() }
             CommandGroup(after: .help) {
                 Button("Guided Tour") { tour.start() }
             }
@@ -56,8 +54,14 @@ struct IntuneDeployerApp: App {
         }
         .keyboardShortcut("l", modifiers: [.command, .shift])
 
-        Settings {
-            SettingsView()
+        // JTKit's General tab starts with Appearance; item editing goes below
+        // it. Connections and GitHub follow, and JTKit adds Updates last.
+        SettingsWindow(updates: updates) {
+            SettingsContent.general
+        } tabs: {
+            SettingsContent.tabs
         }
+
+        AboutWindow(configuration: .intuneDeployer)
     }
 }
