@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import OSLog
 
 nonisolated enum AppUploadError: LocalizedError {
@@ -94,7 +95,8 @@ nonisolated struct AppContentUploader: Sendable {
         )
 
         // 4. Chunked block upload + block list.
-        try await uploadBlocks(to: storageURI, data: encrypted.encrypted, renewPath: filePath)
+        try await uploadContent(fileName: fileName, fileSize: fileData.count, storageURI: storageURI,
+                                data: encrypted.encrypted, renewPath: filePath)
 
         // 5. Commit with the encryption info.
         try await client.post(
@@ -162,8 +164,43 @@ nonisolated struct AppContentUploader: Sendable {
 
     // MARK: - Azure Storage
 
-    private func uploadBlocks(to initialStorageURI: String, data: Data, renewPath: String) async throws {
-        let session = URLSession.shared
+    /// The recorder for Azure Storage: the Graph client's session, log and
+    /// connection, under its own source. The upload address carries its
+    /// signature (`sig=`), which JTKit hides; the contents are never recorded.
+    private var storageRecorder: RequestRecorder {
+        var recorder = client.recorder
+        recorder.category = "Upload"
+        recorder.service = "Azure Storage"
+        return recorder
+    }
+
+    /// Uploads the blocks and writes one summary entry for the file (name,
+    /// size, blocks, duration, result). A block or block list request gets an
+    /// entry of its own only when it fails.
+    private func uploadContent(fileName: String, fileSize: Int, storageURI: String, data: Data, renewPath: String) async throws {
+        let recorder = storageRecorder
+        let blocks = (data.count + Self.blockSize - 1) / Self.blockSize
+        let size = Int64(fileSize).formatted(.byteCount(style: .file))
+        let summary = "\(size) in \(blocks) block\(blocks == 1 ? "" : "s")"
+        let started = ContinuousClock.now
+        func elapsed() -> TimeInterval {
+            let duration = ContinuousClock.now - started
+            return TimeInterval(duration.components.seconds) + TimeInterval(duration.components.attoseconds) / 1e18
+        }
+        do {
+            try await uploadBlocks(to: storageURI, data: data, renewPath: renewPath, recorder: recorder)
+            await recorder.note("Upload", fileName, note: "\(summary): uploaded.", duration: elapsed())
+        } catch is CancellationError {
+            await recorder.note("Upload", fileName, note: "\(summary): cancelled.", duration: elapsed(), isWarning: true)
+            throw CancellationError()
+        } catch {
+            await recorder.note("Upload", fileName, note: "\(summary): failed. \(Redaction.text(error.localizedDescription))",
+                                duration: elapsed(), failed: true)
+            throw error
+        }
+    }
+
+    private func uploadBlocks(to initialStorageURI: String, data: Data, renewPath: String, recorder: RequestRecorder) async throws {
         var storageURI = initialStorageURI
         var blockIDs: [String] = []
         var index = 0
@@ -197,9 +234,10 @@ nonisolated struct AppContentUploader: Sendable {
             var request = URLRequest(url: url)
             request.httpMethod = "PUT"
             request.setValue("BlockBlob", forHTTPHeaderField: "x-ms-blob-type")
-            let (_, response) = try await session.upload(for: request, from: chunk)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw AppUploadError.azure((response as? HTTPURLResponse)?.statusCode ?? -1)
+            request.httpBody = chunk
+            let (_, http) = try await recorder.send(request, recordsOnlyFailures: true)
+            guard (200..<300).contains(http.statusCode) else {
+                throw AppUploadError.azure(http.statusCode)
             }
 
             offset = end
@@ -216,9 +254,10 @@ nonisolated struct AppContentUploader: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-        let (_, response) = try await session.upload(for: request, from: Data(blockList.utf8))
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw AppUploadError.azure((response as? HTTPURLResponse)?.statusCode ?? -1)
+        request.httpBody = Data(blockList.utf8)
+        let (_, http) = try await recorder.send(request, recordsOnlyFailures: true)
+        guard (200..<300).contains(http.statusCode) else {
+            throw AppUploadError.azure(http.statusCode)
         }
         Self.logger.info("Uploaded \(blockIDs.count) block(s), \(data.count) bytes")
     }

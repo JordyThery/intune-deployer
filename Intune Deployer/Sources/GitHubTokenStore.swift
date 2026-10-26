@@ -1,62 +1,37 @@
 import Foundation
-import Security
+import JTKit
 
 /// Stores the optional GitHub personal access token in the Keychain —
 /// needed for private repositories; also raises the API rate limit.
 /// Never persisted in UserDefaults or files, never marked synchronizable
 /// (so it cannot sync to iCloud Keychain).
+///
+/// Through JTKit's Keychain store, under the service and account the app has
+/// always used, "when unlocked", so a saved token keeps being found. Trimming
+/// and "empty deletes" are the app's own rules.
 nonisolated enum GitHubTokenStore {
-    private static let service = "be.jordythery.intune-deployer.github"
-    private static let account = "personal-access-token"
+    static let keychain = KeychainSecretStore(service: "be.jordythery.intune-deployer.github", accessibility: .whenUnlocked)
+    static let account = "personal-access-token"
 
-    static func load() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let token = String(data: data, encoding: .utf8),
-              !token.isEmpty else {
-            return nil
-        }
+    /// - Parameter store: the Keychain; a fake in tests.
+    static func load(from store: any SecretStore = keychain) -> String? {
+        guard let token = store.secret(for: account), !token.isEmpty else { return nil }
         return token
     }
 
-    /// Returns false when the Keychain rejected the write.
+    /// Returns false when the Keychain rejected the write. An empty token
+    /// (after trimming) deletes the saved one.
     @discardableResult
-    static func save(_ token: String) -> Bool {
+    static func save(_ token: String, to store: any SecretStore = keychain) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            delete()
+            delete(from: store)
             return true
         }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let update: [String: Any] = [kSecValueData as String: Data(trimmed.utf8)]
-        var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var attributes = query
-            attributes[kSecValueData as String] = Data(trimmed.utf8)
-            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-            status = SecItemAdd(attributes as CFDictionary, nil)
-        }
-        return status == errSecSuccess
+        return store.setSecret(trimmed, for: account)
     }
 
-    static func delete() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
+    static func delete(from store: any SecretStore = keychain) {
+        store.setSecret(nil, for: account)
     }
 }

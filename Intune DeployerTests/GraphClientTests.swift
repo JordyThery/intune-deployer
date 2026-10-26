@@ -98,16 +98,53 @@ struct GraphClientTests {
         let log = ActivityLog()
         _ = try await makeClient(activityLog: log).get(Thing.self, "things/1", version: .v1)
 
-        #expect(log.entries.count == 2)
+        // the lost attempt, the wait before the next one, the answer
+        #expect(log.entries.count == 3)
         let lost = try #require(log.entries.first)
         #expect(lost.category == "Graph")
+        #expect(lost.service == "Microsoft Graph")
         #expect(lost.operation == "GET")
         #expect(lost.detail.hasSuffix("/things/1"))
         #expect(lost.status == nil)
         #expect(lost.isFailure, "No response is shown as failed")
+        #expect(lost.request?.attempt == 1 && lost.request?.maxAttempts == 5)
+        let wait = log.entries[1]
+        #expect(wait.category == "Retry")
+        #expect(wait.isWarning)
+        #expect(wait.note?.hasPrefix("Network error: waiting ") == true)
+        #expect(wait.note?.hasSuffix("attempt 2 of 5.") == true)
         let answered = try #require(log.entries.last)
         #expect(answered.status == 200)
+        #expect(answered.request?.attempt == 2)
         #expect(!answered.isFailure)
+    }
+
+    @MainActor
+    @Test func waitAfter429IsLoggedAsAWarning() async throws {
+        nonisolated(unsafe) var callCount = 0
+        MockURLProtocol.handler = { @Sendable _ in
+            callCount += 1
+            return callCount == 1 ? (429, ["Retry-After": "0"], Data()) : (200, [:], Data(#"{"id": "ok"}"#.utf8))
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let log = ActivityLog()
+        _ = try await makeClient(activityLog: log).get(Thing.self, "things/1", version: .v1)
+        #expect(log.entries.map(\.status) == [429, nil, 200])
+        #expect(log.entries[1].note == "HTTP 429: waiting 0 s, attempt 2 of 5.")
+        #expect(log.entries[1].isWarning)
+    }
+
+    @MainActor
+    @Test func tokenIsSentButNeverInTheLog() async throws {
+        MockURLProtocol.handler = { @Sendable _ in (200, [:], Data(#"{"id": "ok"}"#.utf8)) }
+        defer { MockURLProtocol.handler = nil }
+
+        let log = ActivityLog()
+        _ = try await makeClient(activityLog: log).get(Thing.self, "things/1", version: .v1)
+        let entry = try #require(log.entries.first)
+        #expect(entry.request?.requestHeaders.first { $0.name == "Authorization" }?.value == "Bearer \(Redaction.placeholder)")
+        #expect(!ActivityLogExport.transcript(of: entry).contains("test-token"))
     }
 
     @Test func failsFastOnNonRetryableError() async throws {

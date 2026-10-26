@@ -45,8 +45,10 @@ nonisolated struct GraphPage<T: Decodable & Sendable>: Decodable, Sendable {
 ///   exponential backoff + jitter (Retry-After honoured when present).
 /// - Caps in-flight requests at 4.
 /// - Follows `@odata.nextLink` paging.
-/// - Logs method/path/status/duration to the activity log; never tokens or
-///   bodies.
+/// - Sends through JTKit's request recorder, which writes each attempt to
+///   the activity log, redacted (JTKit's default bodies rule); each wait
+///   before a retry is logged as a warning. Retries and the 4-at-a-time cap
+///   stay here until JTKit has Graph (ROADMAP step 8).
 actor GraphClient {
     typealias TokenProvider = @Sendable () async throws -> String
 
@@ -55,16 +57,19 @@ actor GraphClient {
     private static let maxConcurrent = 4
 
     private let tokenProvider: TokenProvider
-    private let session: URLSession
-    private let activityLog: ActivityLog?
+    /// Graph requests; also the base for the app-content uploads to Azure
+    /// Storage, which share its session, log and connection.
+    nonisolated let recorder: RequestRecorder
 
     private var activeRequests = 0
     private var slotWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(tokenProvider: @escaping TokenProvider, activityLog: ActivityLog?, session: URLSession = .shared) {
+    /// - Parameter connection: the tenant's name, shown with each entry.
+    init(tokenProvider: @escaping TokenProvider, activityLog: ActivityLog?, session: URLSession = .shared,
+         connection: String? = nil) {
         self.tokenProvider = tokenProvider
-        self.activityLog = activityLog
-        self.session = session
+        self.recorder = RequestRecorder(session: session, log: activityLog, category: "Graph",
+                                        service: "Microsoft Graph", connection: connection)
     }
 
     // MARK: - Public API
@@ -181,25 +186,18 @@ actor GraphClient {
 
             let start = ContinuousClock.now
             let data: Data
-            let response: URLResponse
+            let http: HTTPURLResponse
             do {
-                (data, response) = try await session.data(for: request)
+                (data, http) = try await recorder.send(request, attempt: attempt + 1, of: Self.maxAttempts)
             } catch let error as URLError where Self.isTransient(error) && attempt + 1 < Self.maxAttempts {
                 // Connection hiccups are retried with the same backoff as 503s.
-                await log(method: method, url: url, status: nil,
-                          duration: (ContinuousClock.now - start).seconds,
-                          note: "network error, will retry: \(error.code.rawValue)")
-                try await Task.sleep(for: Self.retryDelay(attempt: attempt, retryAfter: nil))
+                logToSystem(method: method, url: url, status: nil, duration: (ContinuousClock.now - start).seconds)
+                try await wait(Self.retryDelay(attempt: attempt, retryAfter: nil), reason: "Network error",
+                               method: method, url: url, nextAttempt: attempt + 2)
                 continue
             }
-            let duration = (ContinuousClock.now - start).seconds
-
-            guard let http = response as? HTTPURLResponse else { throw GraphError.notJSON }
+            logToSystem(method: method, url: url, status: http.statusCode, duration: (ContinuousClock.now - start).seconds)
             lastStatus = http.statusCode
-
-            let retryable = http.statusCode == 429 || http.statusCode == 503 || http.statusCode == 504
-            await log(method: method, url: url, status: http.statusCode, duration: duration,
-                      note: retryable && attempt + 1 < Self.maxAttempts ? "will retry (attempt \(attempt + 1))" : nil)
 
             switch http.statusCode {
             case 200..<300:
@@ -208,10 +206,8 @@ actor GraphClient {
                 guard attempt + 1 < Self.maxAttempts else {
                     throw GraphError.retriesExhausted(status: http.statusCode)
                 }
-                try await Task.sleep(for: Self.retryDelay(
-                    attempt: attempt,
-                    retryAfter: http.value(forHTTPHeaderField: "Retry-After")
-                ))
+                try await wait(Self.retryDelay(attempt: attempt, retryAfter: http.value(forHTTPHeaderField: "Retry-After")),
+                               reason: "HTTP \(http.statusCode)", method: method, url: url, nextAttempt: attempt + 2)
             default:
                 throw GraphError.http(status: http.statusCode, message: Self.errorMessage(from: data))
             }
@@ -293,17 +289,26 @@ actor GraphClient {
 
     // MARK: - Logging
 
-    /// `status` is nil when no response arrived; such entries are marked failed.
-    private func log(method: String, url: URL, status: Int?, duration: TimeInterval, note: String?) async {
+    /// The activity log entry comes from the recorder; this is the system log
+    /// line. `status` is nil when no response arrived.
+    private func logToSystem(method: String, url: URL, status: Int?, duration: TimeInterval) {
         let path = url.path()
         Self.logger.info("\(method, privacy: .public) \(path, privacy: .public) → \(status ?? -1) in \(String(format: "%.2fs", duration), privacy: .public)")
-        if let activityLog {
-            let entry = ActivityLogEntry(
-                category: "Graph", operation: method, detail: path,
-                status: status, duration: duration, note: note,
-                failedWithoutStatus: status == nil
-            )
-            await MainActor.run { activityLog.append(entry) }
+    }
+
+    /// Waits before the next attempt, written to the activity log first as a
+    /// warning, worded as JTKit's own client does. Cancelling stops it at once.
+    private func wait(_ delay: Duration, reason: String, method: String, url: URL, nextAttempt: Int) async throws {
+        let seconds = delay.seconds
+        let shown = seconds < 10 && seconds.rounded() != seconds ? String(format: "%.1f", seconds) : String(format: "%.0f", seconds)
+        await recorder.note(method, url.path(),
+                            note: "\(reason): waiting \(shown) s, attempt \(nextAttempt) of \(Self.maxAttempts).",
+                            category: "Retry", isWarning: true)
+        do {
+            try await Task.sleep(for: delay)
+        } catch {
+            await recorder.note(method, url.path(), note: "Cancelled while waiting.", category: "Retry")
+            throw CancellationError()
         }
     }
 }

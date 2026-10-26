@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import Observation
 import OSLog
 
@@ -25,18 +26,22 @@ final class SourceStore {
 
     private let storageURL: URL
     private let cacheRoot: URL
+    /// GitHub requests go through JTKit's request recorder into the activity log.
+    private let gitHub: RequestRecorder
     /// Monotonic per-source scan counter: only the latest-started scan may
     /// publish results, so an older scan finishing late cannot overwrite a
     /// newer one (e.g. the rescan after saving an item edit).
     private var scanGenerations: [UUID: Int] = [:]
 
-    init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil) {
+    init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
+         activityLog: ActivityLog? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Intune Deployer", isDirectory: true)
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
         self.edits = editStore ?? ItemEditStore()
         self.platformOverrides = platformStore ?? PlatformOverrideStore()
+        self.gitHub = RequestRecorder(log: activityLog, category: "GitHub", service: "GitHub")
         load()
     }
 
@@ -168,8 +173,8 @@ final class SourceStore {
 
         do {
             let token = GitHubTokenStore.load()
-            let info = try await GitHubClient.fetchRepoInfo(owner: spec.owner, repo: spec.repo, token: token)
-            let releases = try await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token)
+            let info = try await GitHubClient.fetchRepoInfo(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
+            let releases = try await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let release = GitHubClient.pickRelease(from: releases, tagPrefix: spec.tagPrefix)
             let ref = release?.tagName ?? info.defaultBranch
 
@@ -178,7 +183,8 @@ final class SourceStore {
                 repo: spec.repo,
                 ref: ref,
                 into: contentDirectory(for: sourceID),
-                token: token
+                token: token,
+                recorder: gitHub
             )
 
             // The source may have been removed or edited during the download.
@@ -222,7 +228,8 @@ final class SourceStore {
         let token = GitHubTokenStore.load()
         for sourceID in sources.filter(\.isGitHub).map(\.id) {
             guard let spec = sources.first(where: { $0.id == sourceID })?.gitHubSpec,
-                  let releases = try? await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token),
+                  let releases = try? await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token,
+                                                                       recorder: gitHub),
                   let source = sources.first(where: { $0.id == sourceID }) else { continue }
             let latest = GitHubClient.pickRelease(from: releases, tagPrefix: spec.tagPrefix)
             if let latest, latest.tagName != source.gitHub?.syncedTag {

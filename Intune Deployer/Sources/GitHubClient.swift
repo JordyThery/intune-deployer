@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import OSLog
 
 nonisolated enum GitHubError: LocalizedError {
@@ -54,14 +55,16 @@ nonisolated enum GitHubClient {
         return value
     }
 
-    static func fetchRepoInfo(owner: String, repo: String, token: String? = nil) async throws -> RepoInfo {
-        try await get(RepoInfo.self, path: "repos/\(try validated(owner))/\(try validated(repo))", context: "\(owner)/\(repo)", token: token)
+    static func fetchRepoInfo(owner: String, repo: String, token: String? = nil, recorder: RequestRecorder) async throws -> RepoInfo {
+        try await get(RepoInfo.self, path: "repos/\(try validated(owner))/\(try validated(repo))", context: "\(owner)/\(repo)",
+                      token: token, recorder: recorder)
     }
 
     /// Returns the 100 most recent releases (not paged further; tag-prefix
     /// matches older than that are not considered).
-    static func fetchReleases(owner: String, repo: String, token: String? = nil) async throws -> [Release] {
-        try await get([Release].self, path: "repos/\(try validated(owner))/\(try validated(repo))/releases?per_page=100", context: "\(owner)/\(repo) releases", token: token)
+    static func fetchReleases(owner: String, repo: String, token: String? = nil, recorder: RequestRecorder) async throws -> [Release] {
+        try await get([Release].self, path: "repos/\(try validated(owner))/\(try validated(repo))/releases?per_page=100",
+                      context: "\(owner)/\(repo) releases", token: token, recorder: recorder)
     }
 
     /// Latest published (non-draft, non-prerelease) release, optionally
@@ -82,15 +85,18 @@ nonisolated enum GitHubClient {
     /// into its zipballs ("owner-repo-sha/"). Runs off the main actor: ditto
     /// blocks its thread.
     @concurrent
-    static func downloadAndExtract(owner: String, repo: String, ref: String, into destination: URL, token: String? = nil) async throws -> URL {
+    static func downloadAndExtract(owner: String, repo: String, ref: String, into destination: URL, token: String? = nil,
+                                   recorder: RequestRecorder) async throws -> URL {
         // For private repos the 302 Location already carries an ephemeral
-        // token, so the redirect to codeload works after auth at the API.
+        // token (codeload's ?token=), so the redirect to codeload works after
+        // auth at the API; the recorder logs only the API address, and would
+        // hide a token parameter anyway. The archive itself is never logged.
         // (ref may legitimately contain "/", e.g. branch names.)
         let url = apiBase.appending(path: "repos/\(try validated(owner))/\(try validated(repo))/zipball/\(ref)")
-        let (tempFile, response) = try await URLSession.shared.download(for: request(for: url, token: token))
+        let (tempFile, http) = try await recorder.download(request(for: url, token: token))
         defer { try? FileManager.default.removeItem(at: tempFile) }
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw GitHubError.http((response as? HTTPURLResponse)?.statusCode ?? -1, "zipball of \(owner)/\(repo)@\(ref)")
+        guard (200..<300).contains(http.statusCode) else {
+            throw GitHubError.http(http.statusCode, "zipball of \(owner)/\(repo)@\(ref)")
         }
 
         let fileManager = FileManager.default
@@ -186,7 +192,8 @@ nonisolated enum GitHubClient {
         return request
     }
 
-    private static func get<T: Decodable & Sendable>(_ type: T.Type, path: String, context: String, token: String?) async throws -> T {
+    private static func get<T: Decodable & Sendable>(_ type: T.Type, path: String, context: String, token: String?,
+                                                     recorder: RequestRecorder) async throws -> T {
         let url = apiBase.appending(path: path.split(separator: "?").first.map(String.init) ?? path)
         // Re-attach a query string if present (appending(path:) would escape it).
         let finalURL: URL
@@ -198,10 +205,7 @@ nonisolated enum GitHubClient {
             finalURL = url
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request(for: finalURL, token: token))
-        guard let http = response as? HTTPURLResponse else {
-            throw GitHubError.http(-1, context)
-        }
+        let (data, http) = try await recorder.send(request(for: finalURL, token: token))
         guard http.statusCode == 200 else {
             if http.statusCode == 404 {
                 throw GitHubError.notFound(

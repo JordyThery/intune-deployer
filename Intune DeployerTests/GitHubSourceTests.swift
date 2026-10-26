@@ -1,4 +1,6 @@
 import Foundation
+import JTKit
+import JTKitTestSupport
 import Testing
 @testable import Intune_Deployer
 
@@ -73,13 +75,23 @@ struct GitHubSourceTests {
 
     // MARK: - Token storage
 
-    @Test func tokenRoundTripsThroughKeychain() {
-        defer { GitHubTokenStore.delete() }
-        GitHubTokenStore.save("github_pat_test_123")
-        #expect(GitHubTokenStore.load() == "github_pat_test_123")
+    /// On a fake store: the real Keychain item is the user's own token, which
+    /// a test must never overwrite or delete.
+    @Test func tokenIsTrimmedAndEmptyDeletes() {
+        let store = InMemorySecretStore()
+        GitHubTokenStore.save("  github_pat_test_123\n", to: store)
+        #expect(GitHubTokenStore.load(from: store) == "github_pat_test_123")
+        #expect(store.secret(for: "personal-access-token") == "github_pat_test_123")
         // Saving empty removes the token.
-        GitHubTokenStore.save("   ")
-        #expect(GitHubTokenStore.load() == nil)
+        GitHubTokenStore.save("   ", to: store)
+        #expect(GitHubTokenStore.load(from: store) == nil)
+        #expect(store.secret(for: "personal-access-token") == nil)
+    }
+
+    @Test func tokenKeepsItsKeychainNames() {
+        #expect(GitHubTokenStore.keychain.service == "be.jordythery.intune-deployer.github")
+        #expect(GitHubTokenStore.keychain.accessibility == .whenUnlocked)
+        #expect(GitHubTokenStore.account == "personal-access-token")
     }
 
     // MARK: - Persistence migration

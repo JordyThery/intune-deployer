@@ -54,7 +54,8 @@ final class TenantSession {
             tokenProvider: { @Sendable in
                 try await auth.accessToken(profile: profile, scopes: scopes)
             },
-            activityLog: activityLog
+            activityLog: activityLog,
+            connection: profile.displayName
         )
     }
 

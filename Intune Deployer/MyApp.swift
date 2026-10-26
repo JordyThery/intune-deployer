@@ -3,7 +3,7 @@ import SwiftUI
 
 @main
 struct IntuneDeployerApp: App {
-    @State private var sourceStore = SourceStore()
+    @State private var sourceStore: SourceStore
     @State private var tenantStore = TenantStore()
     @State private var auth: AuthManager
     @State private var activityLog: ActivityLog
@@ -18,6 +18,7 @@ struct IntuneDeployerApp: App {
     init() {
         let auth = AuthManager()
         let log = ActivityLog()
+        _sourceStore = State(initialValue: SourceStore(activityLog: log))
         _auth = State(initialValue: auth)
         _activityLog = State(initialValue: log)
         _session = State(initialValue: TenantSession(auth: auth, activityLog: log))
@@ -51,14 +52,10 @@ struct IntuneDeployerApp: App {
             )
         }
 
-        Window("Activity Log", id: "activity-log") {
-            ActivityLogView(
-                log: activityLog,
-                emptyDescription: "Graph requests appear here as they happen."
-            )
-                .frame(minWidth: 640, minHeight: 320)
-        }
-        .keyboardShortcut("l", modifiers: [.command, .shift])
+        ActivityLogWindow(
+            log: activityLog,
+            emptyDescription: "Graph, GitHub and upload requests appear here as they happen."
+        )
 
         // JTKit's General tab starts with Appearance; item editing goes below
         // it. Connections and GitHub follow, and JTKit adds Updates last.
