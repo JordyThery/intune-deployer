@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import OSLog
 
 /// Planning (dry-run) and apply orchestration for the active tenant.
@@ -92,7 +93,7 @@ extension TenantSession {
     /// Fetches all managed collections with full bodies; merges the settings
     /// of tagged Settings Catalog policies (the list endpoint omits them).
     /// The mixed mobileApps collection is filtered to the managed macOS types.
-    private func fetchExistingObjects(client: GraphClient) async throws -> [TenantCollection: [RemoteObject]] {
+    private func fetchExistingObjects(client: Graph.Client) async throws -> [TenantCollection: [RemoteObject]] {
         var result: [TenantCollection: [RemoteObject]] = [:]
         try await withThrowingTaskGroup(of: (TenantCollection, [RemoteObject]).self) { group in
             for collection in TenantCollection.allCases {
@@ -192,7 +193,7 @@ extension TenantSession {
         let groupTypes: [String]?
     }
 
-    private func lookUpGroups(names: Set<String>, client: GraphClient) async throws -> [String: GroupLookup] {
+    private func lookUpGroups(names: Set<String>, client: Graph.Client) async throws -> [String: GroupLookup] {
         var result: [String: GroupLookup] = [:]
         for name in names {
             // $filter=displayName eq '…' works without ConsistencyLevel (v1.0).
@@ -230,7 +231,7 @@ extension TenantSession {
         leafIDs: Set<String>,
         parentIDs: Set<String>,
         known: Set<String>?,
-        client: GraphClient
+        client: Graph.Client
     ) async -> [String: SettingDefinitionInfo] {
         nonisolated struct Definition: Decodable, Sendable {
             nonisolated struct Option: Decodable, Sendable {
@@ -292,7 +293,7 @@ extension TenantSession {
 
     /// Fetches valid setting definition IDs for validation. Returns nil when
     /// unavailable (plan shows a warning instead of failing).
-    private func fetchSettingDefinitionIDs(client: GraphClient) async -> Set<String>? {
+    private func fetchSettingDefinitionIDs(client: Graph.Client) async -> Set<String>? {
         // TODO(verify): the $filter/$top parameters on configurationSettings
         // are not documented on Learn (the endpoint itself is). The portal
         // uses a platform filter; try that first, fall back to an unfiltered
@@ -478,7 +479,7 @@ extension TenantSession {
     private func uploadAppContent(
         action: PlanItemAction,
         appID: String,
-        client: GraphClient,
+        client: Graph.Client,
         items: [InferredItem],
         sourceStore: SourceStore
     ) async throws {
@@ -499,7 +500,7 @@ extension TenantSession {
         try await uploader.upload(fileName: item.fileURL.lastPathComponent, fileData: fileData)
     }
 
-    private func update(action: PlanItemAction, objectID: String, client: GraphClient) async throws {
+    private func update(action: PlanItemAction, objectID: String, client: Graph.Client) async throws {
         let path = "\(action.collection.listPath)/\(objectID)"
         switch action.collection {
         case .settingsCatalog:
@@ -519,7 +520,8 @@ extension TenantSession {
             try await client.patch(path, version: .v1, body: try JSONSerialization.data(withJSONObject: dict))
             if let rules {
                 let body = try JSONSerialization.data(withJSONObject: ["deviceComplianceScheduledActionForRules": rules])
-                try await client.post("\(path)/scheduleActionsForRules", version: .v1, body: body)
+                // replaces the rules, so sending it twice does no harm
+                try await client.post("\(path)/scheduleActionsForRules", version: .v1, body: body, safeToRepeat: true)
             }
 
         case .customAttributes:
@@ -545,7 +547,7 @@ extension TenantSession {
         objectID: String,
         createdGroupIDs: [String: String],
         createdFilterIDs: [String: String],
-        client: GraphClient
+        client: Graph.Client
     ) async throws {
         // App exclusions apply per install intent (the portal lists them per
         // section), so each is sent once for every intent the includes use.
@@ -585,7 +587,9 @@ extension TenantSession {
         default: "assignments"
         }
         let body = try JSONSerialization.data(withJSONObject: [parameterName: entries])
-        try await client.post("\(action.collection.listPath)/\(objectID)/assign", version: action.collection.version, body: body)
+        // replaces the assignments, so sending it twice does no harm
+        try await client.post("\(action.collection.listPath)/\(objectID)/assign", version: action.collection.version, body: body,
+                              safeToRepeat: true)
     }
 
     /// The Graph assignment target for one resolved include or exclusion.
@@ -627,7 +631,7 @@ extension TenantSession {
         return target
     }
 
-    private func createGroup(named name: String, client: GraphClient) async throws -> String {
+    private func createGroup(named name: String, client: Graph.Client) async throws -> String {
         // mailNickname: ≤64 chars, restricted ASCII set (group-post-groups doc).
         var nickname = name.components(separatedBy: CharacterSet.alphanumerics.inverted).joined().lowercased()
         if nickname.isEmpty { nickname = "intunedeployer" }
@@ -652,6 +656,18 @@ extension TenantSession {
     }
 
     // MARK: - Remove baseline
+
+    /// How many objects Remove Baseline would delete: every object carrying
+    /// our identity tag, in every supported collection. Reads only.
+    func taggedObjectCount(profile: TenantProfile) async throws -> Int {
+        let client = client(for: profile)
+        var count = 0
+        for collection in TenantCollection.allCases {
+            let objects = try await client.listRaw(collection.listPath, version: collection.version)
+            count += objects.count { Self.remoteObject(from: $0)?.taggedShortID != nil }
+        }
+        return count
+    }
 
     /// Deletes every object carrying our identity tag. UI requires a typed
     /// confirmation of the tenant name first. Untagged objects are never touched.

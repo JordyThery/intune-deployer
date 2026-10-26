@@ -1,5 +1,6 @@
 import Foundation
 import JTKit
+import JTKitMSAL
 import Observation
 
 /// Runtime state for the currently selected tenant profile: a Graph client
@@ -48,15 +49,15 @@ final class TenantSession {
         applyResults = nil
     }
 
-    func client(for profile: TenantProfile, scopes: [String] = GraphScopes.tenantRead) -> GraphClient {
+    /// JTKit's Graph client for the tenant, with tokens from this Mac's
+    /// sign-in for these permissions (a fresh one after Graph answered 401).
+    func client(for profile: TenantProfile, scopes: [String] = GraphScopes.tenantRead) -> Graph.Client {
         let auth = auth
-        return GraphClient(
-            tokenProvider: { @Sendable in
-                try await auth.accessToken(profile: profile, scopes: scopes)
-            },
-            activityLog: activityLog,
-            connection: profile.displayName
-        )
+        let tokens = MicrosoftTokenSource { forceRefresh in
+            try await auth.accessToken(profile: profile, scopes: scopes, forceRefresh: forceRefresh)
+        }
+        return Graph.Client(tokens: tokens, access: .delegated,
+                            recorder: Graph.recorder(log: activityLog, connection: profile.displayName))
     }
 
     // MARK: - Preflight

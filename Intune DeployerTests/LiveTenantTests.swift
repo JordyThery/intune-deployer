@@ -101,7 +101,7 @@ struct LiveTenantTests {
 
     /// Deletes every tagged object named "[AUTOTEST]…" — leftovers from
     /// interrupted runs must never accumulate in the tenant.
-    private func sweepAutotestObjects(client: GraphClient) async throws -> Int {
+    private func sweepAutotestObjects(client: Graph.Client) async throws -> Int {
         var deleted = 0
         for collection in TenantCollection.allCases {
             let bodies = try await client.listRaw(collection.listPath, version: collection.version)

@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		087B41DE308EA69F00D0CB8A /* JTKitTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 087B41DD308EA69F00D0CB8A /* JTKitTestSupport */; };
-		AA00000000000000000000B1 /* MSAL in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D1 /* MSAL */; };
+		088C72F8308FE9D000A00A72 /* JTKitMSAL in Frameworks */ = {isa = PBXBuildFile; productRef = 088C72F7308FE9D000A00A72 /* JTKitMSAL */; };
 		AA00000000000000000000B2 /* JTKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D2 /* JTKit */; };
 /* End PBXBuildFile section */
 
@@ -44,8 +44,8 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				AA00000000000000000000B1 /* MSAL in Frameworks */,
 				AA00000000000000000000B2 /* JTKit in Frameworks */,
+				088C72F8308FE9D000A00A72 /* JTKitMSAL in Frameworks */,
 			);
 		};
 		080E96C030810D100014F885 /* Frameworks */ = {
@@ -101,8 +101,8 @@
 			);
 			name = "Intune Deployer";
 			packageProductDependencies = (
-				AA00000000000000000000D1 /* MSAL */,
 				AA00000000000000000000D2 /* JTKit */,
+				088C72F7308FE9D000A00A72 /* JTKitMSAL */,
 			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* Intune Deployer.app */;
@@ -161,7 +161,6 @@
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */,
 				AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */,
 			);
 			preferredProjectObjectVersion = 90;
@@ -516,20 +515,12 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/AzureAD/microsoft-authentication-library-for-objc";
-			requirement = {
-				kind = exactVersion;
-				version = 2.16.0;
-			};
-		};
 		AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/JordyThery/JTKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.6.4;
+				minimumVersion = 0.9.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -540,10 +531,10 @@
 			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
 			productName = JTKitTestSupport;
 		};
-		AA00000000000000000000D1 /* MSAL */ = {
+		088C72F7308FE9D000A00A72 /* JTKitMSAL */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA00000000000000000000E1 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */;
-			productName = MSAL;
+			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
+			productName = JTKitMSAL;
 		};
 		AA00000000000000000000D2 /* JTKit */ = {
 			isa = XCSwiftPackageProductDependency;

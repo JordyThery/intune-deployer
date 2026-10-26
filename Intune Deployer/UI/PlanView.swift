@@ -14,6 +14,7 @@ struct PlanView: View {
 
     @State private var orphansToDelete: Set<String> = []
     @State private var confirmingApply = false
+    @State private var typingDeletionCount = false
     @State private var reportDocument: TextExportDocument?
     @State private var reportType: UTType = .plainText
     @State private var reportFilename = ""
@@ -186,13 +187,17 @@ struct PlanView: View {
             }
             Button("Close") { dismiss() }
             if session.applyResults == nil {
-                Button("Apply…") { confirmingApply = true }
+                Button("Apply…") {
+                    // from two deletions the number is typed, which a dialog can't hold
+                    if ApplyConfirmation.typedCount(deletions: orphansToDelete.count) != nil {
+                        typingDeletionCount = true
+                    } else {
+                        confirmingApply = true
+                    }
+                }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(session.currentPlan == nil
-                        || session.currentPlan?.hasErrors == true
-                        || !planHasWork
-                        || session.isPlanning
-                        || session.isApplying)
+                    .disabled(!ApplyConfirmation.canApply(session.currentPlan, deletions: orphansToDelete.count,
+                                                          isPlanning: session.isPlanning, isApplying: session.isApplying))
                     .help(session.currentPlan?.hasErrors == true ? "Fix the listed errors first"
                         : planHasWork ? "" : "Everything is already up to date")
             }
@@ -203,49 +208,41 @@ struct PlanView: View {
             isPresented: $confirmingApply,
             titleVisibility: .visible
         ) {
-            Button("Apply", role: .destructive) {
-                guard let plan = session.currentPlan else { return }
-                let orphanIDs = orphansToDelete
-                Task {
-                    await session.apply(
-                        profile: profile,
-                        plan: plan,
-                        deleteOrphanIDs: orphanIDs,
-                        items: items,
-                        sourceStore: sourceStore
-                    )
-                }
-            }
+            Button("Apply", role: .destructive) { startApply() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Changes are written to the tenant through Microsoft Graph and are not undone automatically.")
         }
+        .sheet(isPresented: $typingDeletionCount) {
+            ApplyDeletionsSheet(
+                title: "Apply \(applySummary) to “\(profile.displayName)”?",
+                deletions: orphansToDelete.count,
+                tenant: profile.displayName,
+                apply: startApply
+            )
+        }
     }
 
-    /// Whether applying would do anything: creates, updates, prerequisites,
-    /// assignment refreshes or ticked orphan deletions.
+    private func startApply() {
+        guard let plan = session.currentPlan else { return }
+        let orphanIDs = orphansToDelete
+        Task {
+            await session.apply(
+                profile: profile,
+                plan: plan,
+                deleteOrphanIDs: orphanIDs,
+                items: items,
+                sourceStore: sourceStore
+            )
+        }
+    }
+
     private var planHasWork: Bool {
-        guard let plan = session.currentPlan else { return false }
-        return plan.createCount > 0
-            || plan.updateCount > 0
-            || !orphansToDelete.isEmpty
-            || plan.actions.contains { $0.assignments != nil }
+        ApplyConfirmation.hasWork(session.currentPlan, deletions: orphansToDelete.count)
     }
 
     private var applySummary: String {
-        guard let plan = session.currentPlan else { return "changes" }
-        var parts = [
-            "\(plan.createCount) create\(plan.createCount == 1 ? "" : "s")",
-            "\(plan.updateCount) update\(plan.updateCount == 1 ? "" : "s")",
-        ]
-        let assignmentCount = plan.actions.count { $0.assignments != nil }
-        if assignmentCount > 0 {
-            parts.append("\(assignmentCount) assignment\(assignmentCount == 1 ? "" : "s")")
-        }
-        if !orphansToDelete.isEmpty {
-            parts.append("\(orphansToDelete.count) deletion\(orphansToDelete.count == 1 ? "" : "s")")
-        }
-        return parts.joined(separator: ", ")
+        ApplyConfirmation.summary(session.currentPlan, deletions: orphansToDelete.count)
     }
 
     // MARK: - As-built report export

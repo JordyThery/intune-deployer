@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 
 /// A generic Intune object as returned by the list endpoints — just enough
 /// for inventory display and identity-tag matching.
@@ -61,7 +62,7 @@ nonisolated enum TenantCollection: String, CaseIterable, Sendable, Identifiable 
         }
     }
 
-    var version: GraphVersion {
+    var version: Graph.Version {
         switch self {
         case .settingsCatalog, .shellScripts, .customAttributes, .assignmentFilters, .apps: .beta
         case .deviceConfigurations, .compliancePolicies: .v1

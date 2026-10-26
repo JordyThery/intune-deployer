@@ -101,7 +101,7 @@ struct RequestLoggingTests {
     }
 
     private func uploader(_ server: MockServer, log: ActivityLog) -> AppContentUploader {
-        let client = GraphClient(tokenProvider: { "graph-token" }, activityLog: log, session: server.session, connection: "Lab")
+        let client = graphClient(server, log: log, connection: "Lab", tokens: TestToken(value: "graph-token"))
         return AppContentUploader(client: client, appID: "app1", appODataType: "#microsoft.graph.macOSPkgApp")
     }
 

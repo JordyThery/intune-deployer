@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 
 /// One row in the preflight checklist.
 nonisolated struct PreflightCheck: Identifiable, Sendable {
@@ -46,7 +47,7 @@ nonisolated struct PreflightCheck: Identifiable, Sendable {
 /// - GET /beta/deviceManagement/depOnboardingSettings —
 ///   DeviceManagementServiceConfig.Read.All
 nonisolated struct PreflightService: Sendable {
-    let client: GraphClient
+    let client: Graph.Client
 
     private struct MeResponse: Decodable, Sendable {
         let displayName: String?

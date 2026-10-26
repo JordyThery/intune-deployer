@@ -7,7 +7,7 @@ project, which is distributed under its own licence.
 
 - Author: Microsoft Corporation
 - Repository: https://github.com/AzureAD/microsoft-authentication-library-for-objc
-- Version: 2.16.0 (commit 8dfe5bf), added as a Swift package
+- Version: 2.16.0 (commit 8dfe5bf), through JTKit's JTKitMSAL, which pins it exactly
 
 Intune Deployer uses MSAL to sign in to Entra ID and get access to Microsoft
 Graph. MSAL is used unmodified.

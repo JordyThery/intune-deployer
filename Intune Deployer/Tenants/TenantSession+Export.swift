@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 
 /// The result of one export, shown to the user afterwards.
 nonisolated struct ExportSummary: Identifiable, Sendable {
@@ -55,7 +56,7 @@ extension TenantSession {
     /// same request the plan uses for scheduled actions).
     nonisolated static func fetchFullBodies(
         _ selection: [ExportSelection],
-        client: GraphClient
+        client: Graph.Client
     ) async -> (bodies: [(collection: TenantCollection, body: Data)], failures: [ExportSummary.Skipped]) {
         var bodies: [(collection: TenantCollection, body: Data)] = []
         var failures: [ExportSummary.Skipped] = []
@@ -99,7 +100,7 @@ extension TenantSession {
         let message: String
     }
 
-    nonisolated private static func fetchOne(_ entry: ExportSelection, client: GraphClient) async throws -> Data {
+    nonisolated private static func fetchOne(_ entry: ExportSelection, client: Graph.Client) async throws -> Data {
         let path = "\(entry.collection.listPath)/\(entry.objectID)"
         let body = try await client.getRaw(path, version: entry.collection.version)
         guard entry.collection == .settingsCatalog else { return body }

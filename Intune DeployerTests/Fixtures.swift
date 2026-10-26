@@ -1,4 +1,6 @@
 import Foundation
+import JTKit
+import JTKitTestSupport
 @testable import Intune_Deployer
 
 /// Builds a throwaway baseline-source folder on disk from fixture content, so
@@ -243,4 +245,19 @@ nonisolated extension AssignmentIntent {
             if targets.isEmpty { targets = [newValue] } else { targets[0] = newValue }
         }
     }
+}
+
+/// A bearer token without a sign-in.
+nonisolated struct TestToken: BearerTokenSource {
+    var value = "token"
+
+    func token() async throws -> String { value }
+    func forgetToken() async {}
+}
+
+/// JTKit's Graph client against a fake Graph, as the app builds it.
+func graphClient(_ server: MockServer, log: ActivityLog? = nil, connection: String? = nil,
+                 tokens: any BearerTokenSource = TestToken()) -> Graph.Client {
+    Graph.Client(tokens: tokens, access: .delegated,
+                 recorder: Graph.recorder(session: server.session, log: log, connection: connection))
 }

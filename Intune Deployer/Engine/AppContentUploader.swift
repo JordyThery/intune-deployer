@@ -51,7 +51,7 @@ nonisolated struct AppContentUploader: Sendable {
         return Data(xml.utf8)
     }
 
-    let client: GraphClient
+    let client: Graph.Client
     let appID: String
     /// e.g. "#microsoft.graph.macOSPkgApp" — used for the final PATCH.
     let appODataType: String

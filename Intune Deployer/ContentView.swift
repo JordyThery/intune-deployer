@@ -206,8 +206,7 @@ struct ContentView: View {
             }
         } catch {
             // User cancelling the sign-in sheet is not an error worth alerting.
-            let nsError = error as NSError
-            if nsError.domain == MSALErrorDomainName, nsError.code == MSALErrorCodeUserCanceled {
+            if AuthManager.isCancellation(error) {
                 return
             }
             authErrorMessage = error.localizedDescription
@@ -252,8 +251,3 @@ struct ContentView: View {
         return store.items(for: selectedSourceIDs).filter { selectedItemIDs.contains($0.id) }
     }
 }
-
-// Bridged MSAL error constants (MSALError.userCanceled in MSAL 2.x), used for
-// the "user cancelled" check without importing MSAL into UI code.
-private let MSALErrorDomainName = "MSALErrorDomain"
-private let MSALErrorCodeUserCanceled = -50005

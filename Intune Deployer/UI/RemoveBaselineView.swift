@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Deletes every object tagged by this app in the tenant, after the user
-/// types the tenant's display name to confirm.
+/// Deletes every object tagged by this app in the tenant. It first counts
+/// them, then asks for the tenant's display name.
 struct RemoveBaselineView: View {
     @Environment(TenantSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -9,6 +9,8 @@ struct RemoveBaselineView: View {
 
     @State private var typedName = ""
     @State private var started = false
+    @State private var objectCount: Int?
+    @State private var countError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +37,10 @@ struct RemoveBaselineView: View {
                     """)
                     .font(.callout)
 
+                    countRow
+
                     TextField("Type the tenant profile name to confirm", text: $typedName, prompt: Text(profile.displayName))
+                        .disabled((objectCount ?? 0) == 0)
                 }
                 .formStyle(.grouped)
             }
@@ -49,11 +54,48 @@ struct RemoveBaselineView: View {
                         started = true
                         Task { await session.removeBaseline(profile: profile) }
                     }
-                    .disabled(typedName != profile.displayName || session.isApplying)
+                    .disabled(!RemoveBaselineConfirmation.canDelete(typedName: typedName, profileName: profile.displayName,
+                                                                    isApplying: session.isApplying, objectCount: objectCount))
                 }
             }
             .padding()
         }
-        .frame(width: 560, height: 380)
+        .frame(width: 560, height: 400)
+        .task { await count() }
+    }
+
+    /// How many objects go, before anything is typed.
+    @ViewBuilder
+    private var countRow: some View {
+        if let objectCount {
+            Text(RemoveBaselineConfirmation.countLine(objectCount))
+                .font(.callout.bold())
+        } else if let countError {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Couldn’t count the tagged objects.", systemImage: "exclamationmark.triangle.fill")
+                    .symbolRenderingMode(.multicolor)
+                Text(countError)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button("Count Again") { Task { await count() } }
+            }
+        } else {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Counting the objects this app created…")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func count() async {
+        objectCount = nil
+        countError = nil
+        do {
+            objectCount = try await session.taggedObjectCount(profile: profile)
+        } catch {
+            countError = error.localizedDescription
+        }
     }
 }
