@@ -41,6 +41,9 @@ extension TenantSession {
             }
         }
 
+        if profile.isDemo {
+            addToDemoCatalog(settingsIn: selected.filter { $0.item.type == .settingsCatalog }.map(\.fileData))
+        }
         let client = client(for: profile, scopes: GraphScopes.planRead)
         do {
             let existing = try await fetchExistingObjects(client: client)

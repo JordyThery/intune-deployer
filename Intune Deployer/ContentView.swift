@@ -122,7 +122,8 @@ struct ContentView: View {
                 sidebarSelection = [.source(first.id)]
             }
         }
-        .onChange(of: tenantStore.selectedProfileID) {
+        // The tenant in use changes with the picker and with Demo Mode.
+        .onChange(of: tenantStore.selectedProfile?.id) {
             session.reset()
             if let profile = tenantStore.selectedProfile {
                 auth.restoreAccount(for: profile)
@@ -131,15 +132,16 @@ struct ContentView: View {
             let tenantSelections = sidebarSelection.filter { if case .tenant = $0 { true } else { false } }
             if !tenantSelections.isEmpty {
                 sidebarSelection.subtract(tenantSelections)
-                if let id = tenantStore.selectedProfileID {
+                if let id = tenantStore.selectedProfile?.id {
                     sidebarSelection.insert(.tenant(id))
                 }
             }
         }
         .onChange(of: selectedSidebarTenant?.id) {
-            // Browsing a tenant in the sidebar also makes it the active tenant.
-            if let id = selectedSidebarTenant?.id, tenantStore.selectedProfileID != id {
-                tenantStore.selectedProfileID = id
+            // Browsing a tenant in the sidebar also makes it the active
+            // tenant; the demo tenant is never saved as the one in use.
+            if let profile = selectedSidebarTenant, !profile.isDemo, tenantStore.selectedProfileID != profile.id {
+                tenantStore.selectedProfileID = profile.id
             }
         }
         .guidedTour(tour)
@@ -147,14 +149,16 @@ struct ContentView: View {
 
     // MARK: - Toolbar pieces
 
-    /// JTKit's picker: the tenant in use, the saved tenants and "Edit
-    /// Connections…"; the Connection menu has the same items.
+    /// JTKit's picker: the tenant in use, the saved tenants, Demo Mode and
+    /// "Edit Connections…"; the Connection menu has the same items.
     private var tenantPicker: some View {
         ConnectionPicker(
             store: tenantStore.connections,
-            selection: Binding(get: { tenantStore.selectedProfileID },
-                               set: { tenantStore.selectedProfileID = $0 })
-        )
+            role: tenantStore.connectionRole(selection: Binding(get: { tenantStore.selectedProfileID },
+                                                                set: { tenantStore.selectedProfileID = $0 }))
+        ) {
+            DemoModeSwitch(session: session)
+        }
     }
 
     /// Sign-in state for the ACTIVE tenant profile (every tenant has its own
@@ -162,7 +166,17 @@ struct ContentView: View {
     @ViewBuilder
     private var accountButton: some View {
         if let profile = tenantStore.selectedProfile {
-            if let account = auth.account(for: profile) {
+            if profile.isDemo, let account = auth.account(for: profile) {
+                // Demo Mode's sample account: no sign-in, nothing to sign out of.
+                Menu {
+                    Text(account.username)
+                    Divider()
+                    Text("Sample account in \(DemoMode.title)")
+                } label: {
+                    Label("Account", systemImage: "person.crop.circle.badge.checkmark")
+                }
+                .help("\(profile.displayName): signed in as \(account.username). \(DemoMode.helpText)")
+            } else if let account = auth.account(for: profile) {
                 Menu {
                     Text(account.username)
                     Divider()
@@ -242,6 +256,8 @@ struct ContentView: View {
         let tenantIDs = Set(sidebarSelection.compactMap {
             if case .tenant(let id) = $0 { id } else { nil }
         })
+        // the tenant in use (the demo tenant in demo mode), else the first saved one
+        if let inUse = tenantStore.selectedProfile, tenantIDs.contains(inUse.id) { return inUse }
         return tenantStore.profiles.first { tenantIDs.contains($0.id) }
     }
 

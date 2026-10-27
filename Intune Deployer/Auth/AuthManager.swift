@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 import JTKitMSAL
 import Observation
 import OSLog
@@ -78,6 +79,12 @@ nonisolated enum GraphScopes {
 /// tenant ID, and has its own signed-in account. One `MicrosoftSignIn` is
 /// kept per client ID; MSAL's Keychain cache is shared, so accounts survive
 /// relaunches.
+///
+/// The demo tenant ("Contoso Intune (Demo)", `TenantProfile.isDemo`) never
+/// reaches MSAL: in demo mode it is signed in with demo mode's fixed token and
+/// account (`DemoMode.microsoftSignIn()`), without a sign-in window, and
+/// MSAL's Keychain cache and the real signed-in accounts are neither read nor
+/// written. Without demo mode it is never signed in.
 @MainActor
 @Observable
 final class AuthManager {
@@ -90,17 +97,39 @@ final class AuthManager {
     private(set) var signingInProfileIDs: Set<UUID> = []
 
     private var signIns: [String: MicrosoftSignIn] = [:]
+    @ObservationIgnored private let makeSignIn: @MainActor (String) throws -> MicrosoftSignIn
+    @ObservationIgnored private let demo: DemoMode?
+    /// Permissions the demo tenant was asked for: granted as asked, step by
+    /// step, like consent in a real tenant.
+    private var demoScopes: [String] = GraphScopes.tenantRead
+
+    /// - Parameters:
+    ///   - demo: the app's demo mode; nil without demo mode.
+    ///   - makeSignIn: MSAL's sign-in for a client ID; a trap in tests.
+    init(demo: DemoMode? = nil,
+         makeSignIn: @escaping @MainActor (String) throws -> MicrosoftSignIn = { try MicrosoftSignIn(clientID: $0) }) {
+        self.demo = demo
+        self.makeSignIn = makeSignIn
+    }
+
+    /// The demo tenant's account, while there is a demo mode.
+    private var demoAccount: SignedInAccount? {
+        guard let demo else { return nil }
+        return SignedInAccount(username: demo.microsoftSignIn().username, identifier: "demo")
+    }
 
     func account(for profile: TenantProfile) -> SignedInAccount? {
-        accountsByProfile[profile.id]
+        if profile.isDemo { return demoAccount }
+        return accountsByProfile[profile.id]
     }
 
     func isSignedIn(_ profile: TenantProfile) -> Bool {
-        accountsByProfile[profile.id] != nil
+        account(for: profile) != nil
     }
 
     func grantedScopes(for profile: TenantProfile) -> [String] {
-        grantedScopesByProfile[profile.id] ?? []
+        if profile.isDemo { return demoAccount == nil ? [] : demoScopes }
+        return grantedScopesByProfile[profile.id] ?? []
     }
 
     /// The person closed Microsoft's sign-in window.
@@ -114,7 +143,7 @@ final class AuthManager {
     /// saved one, else one whose home tenant matches, else the only one
     /// (covers profiles configured with a verified domain instead of a GUID).
     func restoreAccount(for profile: TenantProfile) {
-        guard accountsByProfile[profile.id] == nil,
+        guard !profile.isDemo, accountsByProfile[profile.id] == nil,
               let microsoft = try? signIn(for: profile),
               let account = microsoft.savedAccount(identifier: profile.accountIdentifier, tenantID: profile.tenantID) else { return }
         accountsByProfile[profile.id] = SignedInAccount(account)
@@ -126,6 +155,10 @@ final class AuthManager {
     /// so the caller can persist its identifier on the profile.
     @discardableResult
     func signIn(profile: TenantProfile, scopes: [String] = GraphScopes.tenantRead) async throws -> SignedInAccount {
+        if profile.isDemo {
+            guard let account = demoAccount else { throw MicrosoftSignInError.notSignedIn }
+            return account
+        }
         let microsoft = try signIn(for: profile)
         signingInProfileIDs.insert(profile.id)
         defer { signingInProfileIDs.remove(profile.id) }
@@ -139,6 +172,7 @@ final class AuthManager {
     }
 
     func signOut(profile: TenantProfile) async {
+        guard !profile.isDemo else { return }
         defer {
             accountsByProfile[profile.id] = nil
             grantedScopesByProfile[profile.id] = nil
@@ -156,6 +190,11 @@ final class AuthManager {
     /// `MicrosoftSignIn`).
     /// - Parameter forceRefresh: a new token, after Graph answered 401.
     func accessToken(profile: TenantProfile, scopes: [String], forceRefresh: Bool = false) async throws -> String {
+        if profile.isDemo {
+            guard let demo else { throw MicrosoftSignInError.notSignedIn }
+            demoScopes += scopes.filter { !demoScopes.contains($0) }
+            return demo.microsoftSignIn().accessToken
+        }
         let microsoft = try signIn(for: profile)
         guard let identifier = accountsByProfile[profile.id]?.identifier,
               let account = microsoft.account(identifier: identifier) else {
@@ -170,13 +209,15 @@ final class AuthManager {
 
     // MARK: - Private
 
-    /// One sign-in per client ID (an app registration).
+    /// One sign-in per client ID (an app registration). Never for the demo
+    /// tenant: MSAL isn't set up for it.
     private func signIn(for profile: TenantProfile) throws -> MicrosoftSignIn {
+        guard !profile.isDemo else { throw MicrosoftSignInError.notSignedIn }
         let clientID = try MicrosoftSignIn.validatedClientID(profile.clientID)
         if let cached = signIns[clientID] {
             return cached
         }
-        let microsoft = try MicrosoftSignIn(clientID: clientID)
+        let microsoft = try makeSignIn(clientID)
         signIns[clientID] = microsoft
         return microsoft
     }

@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct IntuneDeployerApp: App {
     @State private var sourceStore: SourceStore
-    @State private var tenantStore = TenantStore()
+    @State private var tenantStore = AppDemo.tenantStore()
     @State private var auth: AuthManager
     @State private var activityLog: ActivityLog
     @State private var session: TenantSession
@@ -16,12 +16,12 @@ struct IntuneDeployerApp: App {
     @State private var tour = IntuneDeployerTour.makeState()
 
     init() {
-        let auth = AuthManager()
+        let auth = AuthManager(demo: AppDemo.mode)
         let log = ActivityLog()
-        _sourceStore = State(initialValue: SourceStore(activityLog: log))
+        _sourceStore = State(initialValue: AppDemo.sourceStore(activityLog: log))
         _auth = State(initialValue: auth)
         _activityLog = State(initialValue: log)
-        _session = State(initialValue: TenantSession(auth: auth, activityLog: log))
+        _session = State(initialValue: TenantSession(auth: auth, activityLog: log, demo: AppDemo.mode))
     }
 
     var body: some Scene {
@@ -36,20 +36,26 @@ struct IntuneDeployerApp: App {
                 .environment(session)
                 .environment(updates)
                 .environment(tour)
+                .environment(AppDemo.mode)
                 .frame(minWidth: 900, minHeight: 560)
-                .task { await updates.checkAutomatically() }
+                .task {
+                    guard !AppDemo.isSandboxLaunch else { return }
+                    await updates.checkAutomatically()
+                }
         }
         .commands {
             AppInfoCommands(appName: "Intune Deployer") { updates.checkManually() }
             CommandGroup(after: .help) {
                 Button("Guided Tour") { tour.start() }
             }
-            // The toolbar picker's items, as JTKit's Connection menu.
+            // The toolbar picker's items, as JTKit's Connection menu, with Demo Mode.
             ConnectionCommands(
                 store: tenantStore.connections,
-                selection: Binding(get: { tenantStore.selectedProfileID },
-                                   set: { tenantStore.selectedProfileID = $0 })
-            )
+                roles: [tenantStore.connectionRole(selection: Binding(get: { tenantStore.selectedProfileID },
+                                                                      set: { tenantStore.selectedProfileID = $0 }))]
+            ) {
+                DemoModeSwitch(session: session)
+            }
         }
 
         ActivityLogWindow(
@@ -63,8 +69,21 @@ struct IntuneDeployerApp: App {
             SettingsContent.general
         } tabs: {
             SettingsContent.tabs(tenants: tenantStore, auth: auth)
+                // Settings › Connections notes that these are the real tenants.
+                .environment(AppDemo.mode)
         }
 
         AboutWindow(configuration: .intuneDeployer)
+    }
+}
+
+/// JTKit's "Demo Mode" switch, for the toolbar picker and the Connection
+/// menu. Dimmed while a Plan or an Apply runs, so demo mode can't cut into it.
+struct DemoModeSwitch: View {
+    let session: TenantSession
+
+    var body: some View {
+        DemoModeToggle(demo: AppDemo.mode)
+            .disabled(session.isPlanning || session.isApplying)
     }
 }

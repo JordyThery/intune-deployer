@@ -96,7 +96,7 @@ struct BaselineSettingsView: View {
     /// The sheet's baseline on top of the profile as saved now: items ticked
     /// or a sign-in while the sheet was open are kept.
     private var baselineToSave: TenantProfile {
-        guard var current = tenantStore.profiles.first(where: { $0.id == profile.id }) else { return profile }
+        guard var current = tenantStore.profile(id: profile.id) else { return profile }
         current.namingPrefix = profile.namingPrefix
         current.allowGroupCreation = profile.allowGroupCreation
         current.defaultAssignments = profile.defaultAssignments

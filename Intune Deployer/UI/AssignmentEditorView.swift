@@ -197,7 +197,7 @@ struct AssignmentEditorView: View {
 
     private func mutateProfile(_ change: (inout TenantProfile) -> Void) {
         // Re-read the profile so concurrent edits are never overwritten.
-        guard var current = tenantStore.profiles.first(where: { $0.id == profile.id }) else { return }
+        guard var current = tenantStore.profile(id: profile.id) else { return }
         change(&current)
         tenantStore.update(current)
     }
