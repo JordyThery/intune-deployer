@@ -84,6 +84,15 @@ struct SidebarView: View {
                         Label("Add Tenant Profile…", systemImage: "plus")
                     }
                     .buttonStyle(.borderless)
+                    if let demo = tenantStore.demo {
+                        Button {
+                            demo.isOn = true
+                        } label: {
+                            Label("Try \(DemoMode.title)", systemImage: "testtube.2")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Plan and apply your baseline to a sample tenant. Nothing is sent to a tenant.")
+                    }
                 } else {
                     Text("Choose a tenant in the toolbar.")
                         .font(.callout)

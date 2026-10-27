@@ -33,15 +33,21 @@ final class SourceStore {
     /// newer one (e.g. the rescan after saving an item edit).
     private var scanGenerations: [UUID: Int] = [:]
 
+    /// - Parameters:
+    ///   - folder: where sources, the GitHub cache, edits and platform
+    ///     choices are kept; Application Support/Intune Deployer by default
+    ///     (a sandbox run uses demo mode's temporary folder).
+    ///   - gitHubSession: sends the GitHub requests (a sandbox run's reaches nothing).
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
-         activityLog: ActivityLog? = nil) {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+         activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession = .shared) {
+        let base = folder ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Intune Deployer", isDirectory: true)
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
-        self.edits = editStore ?? ItemEditStore()
-        self.platformOverrides = platformStore ?? PlatformOverrideStore()
-        self.gitHub = RequestRecorder(log: activityLog, category: "GitHub", service: "GitHub")
+        self.edits = editStore ?? ItemEditStore(storageURL: folder?.appendingPathComponent("item-edits.json"))
+        self.platformOverrides = platformStore
+            ?? PlatformOverrideStore(storageURL: folder?.appendingPathComponent("platform-overrides.json"))
+        self.gitHub = RequestRecorder(session: gitHubSession, log: activityLog, category: "GitHub", service: "GitHub")
         load()
     }
 

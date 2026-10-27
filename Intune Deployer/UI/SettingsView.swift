@@ -56,8 +56,8 @@ struct TenantConnectionsTab: View {
             services: [.intune],
             allowsChangingService: false,
             signInMethods: [.intune: [.microsoftInteractive]],
-            roles: [.active(selection: Binding(get: { tenants.selectedProfileID },
-                                               set: { tenants.selectedProfileID = $0 }))],
+            roles: [tenants.connectionRole(selection: Binding(get: { tenants.selectedProfileID },
+                                                              set: { tenants.selectedProfileID = $0 }))],
             height: 600,
             footer: """
             Tenant ID: Entra admin center → Overview. Client ID: the Application (client) ID of \
@@ -141,24 +141,37 @@ struct AppRegistrationSection: View {
 }
 
 struct GitHubAccessSection: View {
+    @Environment(DemoMode.self) private var demo: DemoMode?
     @State private var gitHubToken = ""
     @State private var tokenStatus: String?
+
+    /// In demo mode the saved token is used for GitHub sources, never changed.
+    private var isReadOnly: Bool { demo?.isOn == true }
 
     var body: some View {
         Section {
             SecureField("Personal access token", text: $gitHubToken, prompt: Text("github_pat_… (optional)"))
                 .font(.body.monospaced())
+                .disabled(isReadOnly)
+            if isReadOnly {
+                Label("\(DemoMode.title) is on. Your saved token is still used for GitHub sources, but can’t be changed.",
+                      systemImage: "testtube.2")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Button("Save Token") {
                     GitHubTokenStore.save(gitHubToken)
                     tokenStatus = gitHubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "Token removed" : "Token saved to the Keychain"
                 }
+                .disabled(isReadOnly)
                 Button("Remove Token") {
                     GitHubTokenStore.delete()
                     gitHubToken = ""
                     tokenStatus = "Token removed"
                 }
+                .disabled(isReadOnly)
                 if let tokenStatus {
                     Text(tokenStatus)
                         .font(.caption)

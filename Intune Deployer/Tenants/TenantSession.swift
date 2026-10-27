@@ -11,6 +11,9 @@ import Observation
 final class TenantSession {
     private let auth: AuthManager
     let activityLog: ActivityLog
+    /// The app's demo mode; nil without demo mode.
+    @ObservationIgnored private let demo: DemoMode?
+    @ObservationIgnored private var demoTenantPrepared = false
 
     private(set) var preflightChecks: [PreflightCheck]?
     private(set) var isRunningPreflight = false
@@ -33,9 +36,10 @@ final class TenantSession {
     /// results so a tenant switch discards stale data.
     var generation = 0
 
-    init(auth: AuthManager, activityLog: ActivityLog) {
+    init(auth: AuthManager, activityLog: ActivityLog, demo: DemoMode? = nil) {
         self.auth = auth
         self.activityLog = activityLog
+        self.demo = demo
     }
 
     /// Clears per-tenant state when the selected profile changes.
@@ -51,13 +55,60 @@ final class TenantSession {
 
     /// JTKit's Graph client for the tenant, with tokens from this Mac's
     /// sign-in for these permissions (a fresh one after Graph answered 401).
+    ///
+    /// The demo tenant's client sends everything (uploads included, which
+    /// use its session) to JTKit's demo network, answered inside the app by
+    /// the demo tenant; without demo mode, to a network that answers nothing.
+    /// A real tenant's never does.
     func client(for profile: TenantProfile, scopes: [String] = GraphScopes.tenantRead) -> Graph.Client {
         let auth = auth
         let tokens = MicrosoftTokenSource { forceRefresh in
             try await auth.accessToken(profile: profile, scopes: scopes, forceRefresh: forceRefresh)
         }
+        let session: URLSession
+        if profile.isDemo {
+            prepareDemoTenant()
+            session = demo?.microsoftSignIn().session ?? DemoNetwork(servers: [:]).session
+        } else {
+            session = .shared
+        }
         return Graph.Client(tokens: tokens, access: .delegated,
-                            recorder: Graph.recorder(log: activityLog, connection: profile.displayName))
+                            recorder: Graph.recorder(session: session, log: activityLog, connection: profile.displayName))
+    }
+
+    // MARK: - Demo tenant
+
+    /// Once per launch: a tagged object that no baseline item matches, as
+    /// left behind by an earlier deploy, so a Plan on the demo tenant also
+    /// shows a deletion.
+    private func prepareDemoTenant() {
+        guard let demo, !demoTenantPrepared else { return }
+        demoTenantPrepared = true
+        let leftOver: [String: Any] = [
+            "@odata.type": "#microsoft.graph.macOSCustomConfiguration",
+            "displayName": "Contoso – Legacy Wi-Fi",
+            "description": "Managed by Intune Deployer \(ItemIdentity.tag(forShortID: "0de0a1f1"))",
+            "payloadName": "Legacy Wi-Fi",
+            "payloadFileName": "legacy-wifi.mobileconfig",
+            "payload": Data("<plist version=\"1.0\"><dict/></plist>".utf8).base64EncodedString(),
+            "id": DemoSamples.uuid(0xe7a1),
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: leftOver) {
+            demo.intuneServer.add([data], to: TenantCollection.deviceConfigurations.listPath)
+        }
+    }
+
+    /// The demo tenant's catalog can't know a baseline's settings: before a
+    /// Plan, it learns the ones the selected Settings Catalog items use, so
+    /// the Plan's check of setting IDs passes (a typo in an ID isn't caught
+    /// in demo mode). Names are made from the IDs.
+    func addToDemoCatalog(settingsIn payloads: [Data]) {
+        guard let demo else { return }
+        let ids = payloads.reduce(into: Set<String>()) { $0.formUnion(PlanEngine.settingDefinitionIDs(in: $1)) }
+        demo.intuneServer.add(definitions: ids.sorted().map { id in
+            let name = id.split(separator: "_").last.map(String.init) ?? id
+            return DemoSettingDefinition(id: id, displayName: name)
+        })
     }
 
     // MARK: - Preflight

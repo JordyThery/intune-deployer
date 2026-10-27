@@ -2,6 +2,7 @@ import Foundation
 import JTKit
 import Observation
 import OSLog
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// Manages tenant profiles: persistence and the current selection.
@@ -11,6 +12,10 @@ import UniformTypeIdentifiers
 /// saved separately, so neither can overwrite the other: Settings changes only
 /// the name, tenant ID and client ID; the main window (`update`) changes only
 /// the baseline.
+///
+/// In demo mode the tenant in use is "Contoso Intune (Demo)" (`demoProfile`):
+/// its baseline lives in memory for the launch and is never saved, and the
+/// saved tenants and the one in use (`selectedProfileID`) stay as they are.
 @MainActor
 @Observable
 final class TenantStore {
@@ -25,8 +30,36 @@ final class TenantStore {
         didSet { saveSelection() }
     }
 
+    /// The tenant in use: the demo tenant while demo mode is on, else the
+    /// saved one chosen in the toolbar.
     var selectedProfile: TenantProfile? {
-        profiles.first { $0.id == selectedProfileID }
+        if isDemoActive { return demoProfile }
+        return profiles.first { $0.id == selectedProfileID }
+    }
+
+    /// A tenant by ID: a saved one, or the demo tenant.
+    func profile(id: UUID) -> TenantProfile? {
+        if id == demoProfile.id { return demo == nil ? nil : demoProfile }
+        return profiles.first { $0.id == id }
+    }
+
+    // MARK: - Demo mode
+
+    /// The app's demo mode; nil without demo mode (tests, previews).
+    let demo: DemoMode?
+    /// The demo tenant for the picker and the Connection menu.
+    let demoChoice: DemoConnectionChoice?
+    /// "Contoso Intune (Demo)", with the baseline chosen in demo mode. In
+    /// memory only, new each launch.
+    private(set) var demoProfile = TenantProfile.demo
+
+    var isDemoActive: Bool { demo?.isOn == true }
+
+    /// The picker's, the Connection menu's and Settings' role: the saved
+    /// tenant in use, or in demo mode the demo tenant. Choosing a saved
+    /// tenant leaves demo mode.
+    func connectionRole(selection: Binding<UUID?>) -> ConnectionRole {
+        .active(selection: selection, demo: demoChoice)
     }
 
     /// Why the last change made in the main window wasn't saved.
@@ -35,9 +68,12 @@ final class TenantStore {
     @ObservationIgnored private let storage: TenantFileStorage
     @ObservationIgnored private let defaults: UserDefaults
 
-    init(storageURL: URL? = nil, defaults: UserDefaults = .standard) {
+    /// - Parameter demo: the app's demo mode; nil without demo mode.
+    init(storageURL: URL? = nil, defaults: UserDefaults = .standard, demo: DemoMode? = nil) {
         storage = TenantFileStorage(fileURL: storageURL ?? Self.defaultStorageURL())
         self.defaults = defaults
+        self.demo = demo
+        demoChoice = demo.map { DemoConnectionChoice(mode: $0, connections: [.demoIntune]) }
         connections = ConnectionStore(storage: storage, secrets: [:]) { message in
             Self.logger.error("\(message)")
         }
@@ -54,6 +90,19 @@ final class TenantStore {
     /// prefix, group creation, signed-in account). Its name and IDs stay as
     /// saved in Settings.
     func update(_ profile: TenantProfile) {
+        // The demo tenant's baseline stays in memory; tenants.json is never touched.
+        if profile.id == demoProfile.id {
+            var updated = profile
+            updated.connection = demoProfile.connection
+            updated.accountIdentifier = nil
+            demoProfile = updated
+            saveError = nil
+            return
+        }
+        guard !profile.connection.isDemo else {
+            saveError = TenantStoreError.demoProfile(profile.displayName).localizedDescription
+            return
+        }
         do {
             if let problem = connections.problem { throw problem }
             try storage.backUpOnce()
@@ -150,6 +199,7 @@ final class TenantFileStorage: ConnectionStorage {
 nonisolated enum TenantStoreError: LocalizedError, Equatable {
     case notSaved(String)
     case notAProfile(String)
+    case demoProfile(String)
 
     var errorDescription: String? {
         switch self {
@@ -157,6 +207,8 @@ nonisolated enum TenantStoreError: LocalizedError, Equatable {
             "“\(name)” is no longer in the saved tenant profiles, so the change wasn't saved."
         case .notAProfile(let detail):
             "Not a valid tenant profile: \(detail)"
+        case .demoProfile(let name):
+            "“\(name)” is a demo tenant profile. Demo tenants live in Demo Mode only and are never added to your tenant profiles."
         }
     }
 }
@@ -171,6 +223,10 @@ extension TenantProfile {
         } catch {
             throw TenantStoreError.notAProfile(error.localizedDescription)
         }
+        // An exported demo tenant, whatever its ID: never added to the real list.
+        guard !profile.connection.isDemo else {
+            throw TenantStoreError.demoProfile(profile.displayName)
+        }
         profile.accountIdentifier = nil
         if existingIDs.contains(profile.id) {
             profile.id = UUID()
@@ -178,6 +234,18 @@ extension TenantProfile {
         }
         return profile
     }
+
+    /// Demo mode's tenant, "Contoso Intune (Demo)": JTKit's demo Intune
+    /// connection with an empty baseline. Never saved.
+    static var demo: TenantProfile {
+        let connection = Connection.demoIntune
+        return TenantProfile(id: connection.id, displayName: connection.name,
+                             clientID: connection.clientID, tenantID: connection.tenantID)
+    }
+
+    /// The demo tenant (or an exported copy of it): signs in with demo
+    /// mode's fixed token, never with MSAL, and is never saved.
+    var isDemo: Bool { connection.isDemo }
 
     /// The profile as an export file. The MSAL account identifier is
     /// machine/account-specific and is left out.

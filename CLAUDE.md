@@ -49,7 +49,16 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 - Item edits, platform overrides and the GitHub cache (`GitHubSources/<sourceID>/`) in Application Support/Intune Deployer.
 - GitHub token: Keychain service `be.jordythery.intune-deployer.github`, account `personal-access-token`, "when unlocked"; trimmed, empty deletes.
 - The app's own Keychain group must stay listed before MSAL's in the entitlements, so new items don't land in MSAL's shared group. MSAL keeps its own token cache.
-- UserDefaults `enableItemEditing` (off by default), `hasSeenGuidedTour`.
+- UserDefaults `enableItemEditing` (off by default), `hasSeenGuidedTour`, `demoMode`.
+
+## Demo Mode (JTKit step 10, decided by Jordy)
+
+- "Contoso Intune (Demo)" on JTKit's demo Intune server (`AppDemo`, `TenantProfile.demo`). Plan, Apply, deletions, Remove Baseline, export, uploads and Preflight run the real code against it, with their real confirmations.
+- The demo tenant never reaches MSAL: `AuthManager` answers it with `DemoMode.microsoftSignIn()` (fixed token, sample account) and never sets up `MicrosoftSignIn` for it (tested with a trap). Its client uses the demo network's session only.
+- Its baseline lives in memory per launch (`TenantStore.demoProfile`); `tenants.json` and `selectedTenantProfileID` are never written in demo mode. An exported demo tenant is refused on import, under any ID.
+- Stay real: baseline sources, item edits, platform overrides, the GitHub cache. The GitHub token is read but can't be changed in demo mode.
+- Before a demo Plan the demo catalog learns the setting IDs the selected Settings Catalog items use, so a typo in a setting ID isn't caught in demo mode. A tagged left-over ("Contoso – Legacy Wi-Fi") makes the first Plan show a deletion.
+- `-JTKitDemoScenario missingPermission`: every write gets Graph's real 403. `-JTKitSandbox YES`: tenants and sources in demo mode's temporary folder, no update check, GitHub blocked.
 
 ## Graph behaviour learned the hard way
 
