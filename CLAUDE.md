@@ -48,7 +48,7 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 - Tenant profiles: `tenants.json` in Application Support/Intune Deployer, through JTKit's `ConnectionStore`; selection in UserDefaults `selectedTenantProfileID`. Settings › Connections changes only name, tenant ID and client ID; the main window saves only the baseline part.
 - Item edits, platform overrides and the GitHub cache (`GitHubSources/<sourceID>/`) in Application Support/Intune Deployer.
 - GitHub token: Keychain service `be.jordythery.intune-deployer.github`, account `personal-access-token`, "when unlocked"; trimmed, empty deletes.
-- The app's own Keychain group must stay listed before MSAL's in the entitlements, so new items don't land in MSAL's shared group. MSAL keeps its own token cache.
+- The app's own Keychain group must stay listed before MSAL's in the entitlements (a test checks the signed app), so a new data-protection Keychain item that names no group never lands in MSAL's shared group. MSAL names its own group, so its sign-in cache is found either way. The GitHub token is in the login Keychain, where these groups don't apply.
 - UserDefaults `enableItemEditing` (off by default), `hasSeenGuidedTour`, `demoMode`.
 
 ## Demo Mode (JTKit step 10, decided by Jordy)
