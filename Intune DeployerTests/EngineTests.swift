@@ -59,13 +59,13 @@ struct PayloadBuilderTests {
         let built = try PayloadBuilder.build(
             item: item,
             fileData: Data(Fixtures.intuneManagementSettingsCatalogJSON.utf8),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"]
         )
         let body = try json(built.body)
 
         #expect(built.collection == .settingsCatalog)
-        #expect(body["name"] as? String == "[LAB9] macOS - Updates - Deferral Contoso")
+        #expect(body["name"] as? String == "[CONTOSO] macOS - Updates - Deferral Contoso")
         let description = try #require(body["description"] as? String)
         #expect(description.contains(ItemIdentity.tag(forShortID: item.id)))
         // Server/tool keys stripped.
@@ -93,7 +93,7 @@ struct PayloadBuilderTests {
         let built = try PayloadBuilder.build(
             item: item,
             fileData: Data(Fixtures.mobileconfig.utf8),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"]
         )
         let body = try json(built.body)
@@ -105,8 +105,8 @@ struct PayloadBuilderTests {
         #expect(decoded.contains("Dock Settings Contoso"))
         #expect(!decoded.contains("{{OrgName}}"))
         // The object name is substituted too, not taken from the raw file.
-        #expect(body["displayName"] as? String == "[LAB9] Dock Settings Contoso")
-        #expect(body["payloadName"] as? String == "[LAB9] Dock Settings Contoso")
+        #expect(body["displayName"] as? String == "[CONTOSO] Dock Settings Contoso")
+        #expect(body["payloadName"] as? String == "[CONTOSO] Dock Settings Contoso")
     }
 
     @Test func complianceWithoutScheduledActionsGetsDefaultAndWarning() throws {
@@ -144,13 +144,13 @@ struct PayloadBuilderTests {
         let built = try PayloadBuilder.build(
             item: item,
             fileData: Data(Fixtures.scriptWithOptionsDirective.utf8),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"]
         )
         let body = try json(built.body)
 
         #expect(body["@odata.type"] as? String == "#microsoft.graph.deviceShellScript")
-        #expect(body["displayName"] as? String == "[LAB9] greeting")
+        #expect(body["displayName"] as? String == "[CONTOSO] greeting")
         #expect(body["runAsAccount"] as? String == "user")
         #expect(body["executionFrequency"] as? String == "P1D") // canonical ISO form
         #expect(body["retryCount"] as? Int == 3)
@@ -165,14 +165,14 @@ struct PayloadBuilderTests {
         let built = try PayloadBuilder.build(
             item: item,
             fileData: Data(Fixtures.attributeScriptByFolder.utf8),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: [:]
         )
         let body = try json(built.body)
 
         #expect(body["customAttributeName"] as? String == "batteryhealth")
         #expect(body["customAttributeType"] as? String == "string")
-        #expect(body["displayName"] as? String == "[LAB9] battery health")
+        #expect(body["displayName"] as? String == "[CONTOSO] battery health")
     }
 
     @Test func filterDefaultsToMacOSPlatform() throws {
@@ -237,7 +237,7 @@ struct GraphDiffTests {
 
 @Suite("Plan engine")
 struct PlanEngineTests {
-    private func remoteScript(shortID: String, name: String = "[LAB9] greeting") -> RemoteObject {
+    private func remoteScript(shortID: String, name: String = "[CONTOSO] greeting") -> RemoteObject {
         let body = """
         {"id": "obj-1", "displayName": "\(name)", "description": "x [gw:\(shortID)]",
          "runAsAccount": "user", "fileName": "greeting.sh",
@@ -260,7 +260,7 @@ struct PlanEngineTests {
             displayName: "Test",
             clientID: "e445f0a6-0000-0000-0000-000000000000",
             tenantID: "t",
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"],
             selectedItemIDs: selectedIDs ?? [item.id],
             assignments: assignments,
@@ -291,7 +291,7 @@ struct PlanEngineTests {
         let built = try PayloadBuilder.build(
             item: item,
             fileData: Data(Fixtures.scriptWithOptionsDirective.utf8),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"]
         )
         let remote = RemoteObject(
@@ -312,9 +312,9 @@ struct PlanEngineTests {
         let (input, _) = scriptInput(existing: [
             .shellScripts: [RemoteObject(
                 id: "obj-1",
-                displayName: "[LAB9] greeting",
+                displayName: "[CONTOSO] greeting",
                 description: "x [gw:\(shortID)]",
-                body: Data(#"{"displayName": "[LAB9] greeting", "runAsAccount": "system"}"#.utf8)
+                body: Data(#"{"displayName": "[CONTOSO] greeting", "runAsAccount": "system"}"#.utf8)
             )],
         ])
         let plan = PlanEngine.makePlan(input: input)
@@ -330,9 +330,9 @@ struct PlanEngineTests {
         let (input, _) = scriptInput(existing: [
             .compliancePolicies: [RemoteObject(
                 id: "old-1",
-                displayName: "[LAB9] Old Policy",
+                displayName: "[CONTOSO] Old Policy",
                 description: "[gw:deadbeef]",
-                body: Data(#"{"displayName": "[LAB9] Old Policy"}"#.utf8)
+                body: Data(#"{"displayName": "[CONTOSO] Old Policy"}"#.utf8)
             )],
             // Untagged objects are never orphaned.
             .shellScripts: [RemoteObject(id: "foreign", displayName: "Foreign", description: "manual", body: Data("{}".utf8))],

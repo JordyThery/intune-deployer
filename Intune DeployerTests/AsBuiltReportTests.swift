@@ -10,9 +10,9 @@ struct AsBuiltReportTests {
             PlanItemAction(
                 id: "3f9a1c2e",
                 collection: .settingsCatalog,
-                displayName: "[LAB9] Disable Content Caching",
+                displayName: "[CONTOSO] Disable Content Caching",
                 kind: .create,
-                payload: Data(#"{"name": "[LAB9] Disable Content Caching", "platforms": "macOS"}"#.utf8),
+                payload: Data(#"{"name": "[CONTOSO] Disable Content Caching", "platforms": "macOS"}"#.utf8),
                 existingObjectID: nil,
                 assignments: [ResolvedAssignment(target: .allDevices, filter: nil)],
                 warnings: ["Example warning"]
@@ -22,11 +22,11 @@ struct AsBuiltReportTests {
         return AsBuiltReport.Input(
             profileName: "Demo & Co <test>",
             tenantID: "efccb476-07c8-4c09-be3d-6927868b2402",
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             plan: plan,
             results: [
-                ApplyResult(title: "Create [LAB9] Disable Content Caching", outcome: .success),
-                ApplyResult(title: "Assign [LAB9] Disable Content Caching", outcome: .failure("HTTP 400")),
+                ApplyResult(title: "Create [CONTOSO] Disable Content Caching", outcome: .success),
+                ApplyResult(title: "Assign [CONTOSO] Disable Content Caching", outcome: .failure("HTTP 400")),
             ],
             date: Date(timeIntervalSince1970: 1_790_000_000)
         )
@@ -35,7 +35,7 @@ struct AsBuiltReportTests {
     @Test func markdownContainsItemsAssignmentsAndResults() {
         let markdown = AsBuiltReport.markdown(sampleInput())
         #expect(markdown.contains("# As-Built Report — Demo & Co <test>"))
-        #expect(markdown.contains("[LAB9] Disable Content Caching"))
+        #expect(markdown.contains("[CONTOSO] Disable Content Caching"))
         #expect(markdown.contains("| Assignment | All devices |"))
         #expect(markdown.contains("[IntuneDeployer:3f9a1c2e]"))
         #expect(markdown.contains("macOS Pilots"))

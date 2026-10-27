@@ -7,11 +7,11 @@ import Testing
 struct TenantModelTests {
     @Test func tenantProfileRoundTripsThroughJSON() throws {
         let profile = TenantProfile(
-            displayName: "Lab9 Pro",
+            displayName: "Contoso",
             clientID: "e445f0a6-0000-0000-0000-000000000000",
             tenantID: "c0ffee00-0000-0000-0000-000000000000",
-            namingPrefix: "[LAB9]",
-            variables: ["EnrollmentProfileName": "Lab9 ADE"],
+            namingPrefix: "[CONTOSO]",
+            variables: ["EnrollmentProfileName": "Contoso ADE"],
             selectedItemIDs: ["3f9a1c2e"],
             accountIdentifier: "uid.tid"
         )

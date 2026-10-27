@@ -176,7 +176,7 @@ struct IOSPayloadTests {
         info.supportsIPad = false
         info.provisioningExpiration = Date(timeIntervalSinceNow: 365 * 86_400)
 
-        let built = try PayloadBuilder.buildIOSApp(item: item, appInfo: info, prefix: "[LAB9]", tag: "[IntuneDeployer:00000000]")
+        let built = try PayloadBuilder.buildIOSApp(item: item, appInfo: info, prefix: "[CONTOSO]", tag: "[IntuneDeployer:00000000]")
         let dict = try #require(try JSONSerialization.jsonObject(with: built.body) as? [String: Any])
         #expect(dict["@odata.type"] as? String == "#microsoft.graph.iosLobApp")
         #expect(dict["bundleId"] as? String == "com.example.tool")
@@ -435,14 +435,14 @@ struct IOSExportTests {
     @Test func iosComplianceRoundTripsThroughExport() throws {
         // Deploy → export → rescan → rebuild must match the deployed body.
         let item = makeItem("c.json", type: .compliancePolicy, platform: .iOSiPadOS)
-        let deployed = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.iosComplianceJSON.utf8), namingPrefix: "[LAB9]", variables: [:])
+        let deployed = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.iosComplianceJSON.utf8), namingPrefix: "[CONTOSO]", variables: [:])
         var tenantObject = try #require(try JSONSerialization.jsonObject(with: deployed.body) as? [String: Any])
         tenantObject["id"] = "obj-1"
 
         let outcome = TenantExporter.export(
             collection: .compliancePolicies,
             body: try JSONSerialization.data(withJSONObject: tenantObject),
-            namingPrefix: "[LAB9]"
+            namingPrefix: "[CONTOSO]"
         )
         let folder = try tempDir()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -454,7 +454,7 @@ struct IOSExportTests {
         let rebuilt = try PayloadBuilder.build(
             item: rescanned,
             fileData: try Data(contentsOf: folder.appending(path: written[0])),
-            namingPrefix: "[LAB9]",
+            namingPrefix: "[CONTOSO]",
             variables: [:]
         )
         let changes = try GraphDiff.changes(desired: rebuilt.body, remote: deployed.body, ignoringKeys: ["description"])

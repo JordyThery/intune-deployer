@@ -57,23 +57,23 @@ struct DeletionConfirmationTests {
 
     @Test("Remove Baseline needs the tenant's name typed exactly")
     func removeBaselineName() {
-        #expect(RemoveBaselineConfirmation.canDelete(typedName: "Lab9 Pro", profileName: "Lab9 Pro", isApplying: false, objectCount: 3))
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "lab9 pro", profileName: "Lab9 Pro", isApplying: false, objectCount: 3))
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Lab9 Pro ", profileName: "Lab9 Pro", isApplying: false, objectCount: 3))
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "", profileName: "Lab9 Pro", isApplying: false, objectCount: 3))
+        #expect(RemoveBaselineConfirmation.canDelete(typedName: "Contoso", profileName: "Contoso", isApplying: false, objectCount: 3))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "contoso", profileName: "Contoso", isApplying: false, objectCount: 3))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Contoso ", profileName: "Contoso", isApplying: false, objectCount: 3))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "", profileName: "Contoso", isApplying: false, objectCount: 3))
     }
 
     @Test("Remove Baseline is greyed out while applying")
     func removeBaselineBusy() {
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Lab9 Pro", profileName: "Lab9 Pro", isApplying: true, objectCount: 3))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Contoso", profileName: "Contoso", isApplying: true, objectCount: 3))
     }
 
     // MARK: - New in step 8 (decided by Jordy)
 
     @Test("Remove Baseline first counts what it deletes: not before the count, not with nothing to delete")
     func removeBaselineCount() {
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Lab9 Pro", profileName: "Lab9 Pro", isApplying: false, objectCount: nil))
-        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Lab9 Pro", profileName: "Lab9 Pro", isApplying: false, objectCount: 0))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Contoso", profileName: "Contoso", isApplying: false, objectCount: nil))
+        #expect(!RemoveBaselineConfirmation.canDelete(typedName: "Contoso", profileName: "Contoso", isApplying: false, objectCount: 0))
         #expect(RemoveBaselineConfirmation.countLine(12) == "12 objects will be deleted.")
         #expect(RemoveBaselineConfirmation.countLine(1) == "1 object will be deleted.")
         #expect(RemoveBaselineConfirmation.countLine(0).contains("nothing to delete"))
@@ -88,6 +88,6 @@ struct DeletionConfirmationTests {
         #expect(ApplyConfirmation.typingProblem("2", deletions: 3) == "Type 3 to confirm.")
         #expect(ApplyConfirmation.typingProblem(" 3 ", deletions: 3) == nil)
         #expect(ApplyConfirmation.typingProblem("", deletions: 1) == nil)
-        #expect(ApplyConfirmation.deletionLine(deletions: 3, tenant: "Lab9 Pro") == "3 objects are deleted from “Lab9 Pro”. This can’t be undone.")
+        #expect(ApplyConfirmation.deletionLine(deletions: 3, tenant: "Contoso") == "3 objects are deleted from “Contoso”. This can’t be undone.")
     }
 }

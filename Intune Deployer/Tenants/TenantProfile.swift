@@ -14,7 +14,7 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
     var clientID: String
     /// Entra tenant ID (GUID) or verified domain.
     var tenantID: String
-    /// Prepended to object names on deploy, e.g. "[LAB9]".
+    /// Prepended to object names on deploy, e.g. "[CONTOSO]".
     var namingPrefix: String
     /// Values for `{{Token}}` placeholders, substituted at plan time.
     var variables: [String: String]

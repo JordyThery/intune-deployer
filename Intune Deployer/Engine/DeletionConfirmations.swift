@@ -20,7 +20,7 @@ nonisolated enum ApplyConfirmation {
                                 irreversible: true, connectionName: nil, isDestructive: true)
     }
 
-    /// "3 objects are deleted from “Lab9 Pro”. This can’t be undone."
+    /// "3 objects are deleted from “Contoso”. This can’t be undone."
     static func deletionLine(deletions: Int, tenant: String) -> String {
         "\(deletions) object\(deletions == 1 ? " is" : "s are") deleted from “\(tenant)”. This can’t be undone."
     }

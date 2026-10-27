@@ -11,7 +11,7 @@ private func tempDir() throws -> URL {
 
 @Suite("Tenant export")
 struct TenantExportTests {
-    private let prefix = "[LAB9]"
+    private let prefix = "[CONTOSO]"
     private let variables = ["OrgName": "Contoso", "EnrollmentProfileName": "Contoso ADE"]
 
     // MARK: - Round trip
@@ -103,11 +103,11 @@ struct TenantExportTests {
     @Test func exportStripsServerKeysTagAndPrefix() throws {
         let body = Data("""
         {"@odata.type":"#microsoft.graph.macOSCompliancePolicy","@odata.context":"x","id":"abc",
-         "createdDateTime":"2026-01-01T00:00:00Z","displayName":"[LAB9] Encryption",
+         "createdDateTime":"2026-01-01T00:00:00Z","displayName":"[CONTOSO] Encryption",
          "description":"Baseline [IntuneDeployer:0a1b2c3d]","assignments":[{"id":"1"}],
          "scheduledActionsForRule":[{"id":"r1","ruleName":"PasswordRequired"}]}
         """.utf8)
-        guard case .file(let file) = TenantExporter.export(collection: .compliancePolicies, body: body, namingPrefix: "[LAB9]") else {
+        guard case .file(let file) = TenantExporter.export(collection: .compliancePolicies, body: body, namingPrefix: "[CONTOSO]") else {
             Issue.record("Expected a file")
             return
         }
@@ -124,7 +124,7 @@ struct TenantExportTests {
         #expect(TenantExporter.cleanedDescription("Managed by Intune Deployer [IntuneDeployer:0a1b2c3d]") == nil)
         #expect(TenantExporter.cleanedDescription("Legacy [gw:0a1b2c3d]") == "Legacy")
         // Only an exact "prefix + space" is removed.
-        #expect(TenantExporter.unprefixed("[LAB9]Name", prefix: "[LAB9]") == "[LAB9]Name")
+        #expect(TenantExporter.unprefixed("[CONTOSO]Name", prefix: "[CONTOSO]") == "[CONTOSO]Name")
         #expect(TenantExporter.unprefixed("Name", prefix: "") == "Name")
     }
 

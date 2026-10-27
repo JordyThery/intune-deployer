@@ -151,12 +151,12 @@ struct AppPayloadTests {
             primaryBundleVersion: "2.3.1",
             includedApps: [AppPackageInfo.IncludedApp(bundleID: "com.example.demo.app", bundleVersion: "2.3.1")]
         )
-        let built = try PayloadBuilder.build(item: item, fileData: Data(), namingPrefix: "[LAB9]", variables: [:], appInfo: appInfo)
+        let built = try PayloadBuilder.build(item: item, fileData: Data(), namingPrefix: "[CONTOSO]", variables: [:], appInfo: appInfo)
         let body = try #require(try JSONSerialization.jsonObject(with: built.body) as? [String: Any])
 
         #expect(built.collection == .apps)
         #expect(body["@odata.type"] as? String == "#microsoft.graph.macOSPkgApp")
-        #expect(body["displayName"] as? String == "[LAB9] Demo-2.3.1")
+        #expect(body["displayName"] as? String == "[CONTOSO] Demo-2.3.1")
         #expect(body["primaryBundleId"] as? String == "com.example.demo")
         #expect(body["primaryBundleVersion"] as? String == "2.3.1")
         #expect(body["fileName"] as? String == "Demo-2.3.1.pkg")
