@@ -127,7 +127,10 @@ struct DemoModeTests {
         // 5. Remove Baseline: every tagged object goes; Contoso's own stay.
         await session.removeBaseline(profile: profile)
         #expect(session.applyResults?.filter(\.isFailure).isEmpty == true)
-        #expect(session.applyResults?.count == 10)
+        #expect(session.applyResults?.filter { $0.title.hasPrefix("Delete") }.count == 10)
+        // The Contoso group the assignments name isn't this profile's: listed and kept.
+        let kept = session.applyResults?.filter { $0.title.hasPrefix("Keep group") } ?? []
+        #expect(kept.count == (session.applyResults?.count ?? 0) - 10 && kept.allSatisfy { if case .skipped = $0.outcome { true } else { false } })
         let configurations = demo.intuneServer.objects(at: TenantCollection.deviceConfigurations.listPath)
         #expect(configurations.count == 1, "Contoso – Dock, untagged, stays")
 

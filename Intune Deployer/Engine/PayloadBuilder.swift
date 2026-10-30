@@ -47,11 +47,14 @@ nonisolated enum PayloadBuilder {
         fileData: Data,
         namingPrefix: String,
         variables: [String: String],
-        appInfo: AppPackageInfo? = nil
+        appInfo: AppPackageInfo? = nil,
+        profileID: UUID? = nil
     ) throws -> Built {
+        // The item's tag, and the profile's when deploying for one.
+        let tag = ItemIdentity.tag(forShortID: item.id, profileID: profileID)
         // Apps are binary: no variable substitution, metadata from inspection.
         if item.type == .app {
-            return try buildApp(item: item, appInfo: appInfo, prefix: namingPrefix, tag: ItemIdentity.tag(forShortID: item.id))
+            return try buildApp(item: item, appInfo: appInfo, prefix: namingPrefix, tag: tag)
         }
 
         let isMobileconfig = item.fileURL.pathExtension.lowercased() == "mobileconfig"
@@ -83,7 +86,6 @@ nonisolated enum PayloadBuilder {
             throw PayloadError.unresolvedTokens(substitution.unresolved)
         }
         let text = substitution.text
-        let tag = ItemIdentity.tag(forShortID: item.id)
 
         switch item.type {
         case .settingsCatalog:
@@ -228,6 +230,7 @@ nonisolated enum PayloadBuilder {
     static func taggedDescription(_ description: String?, tag: String) -> String {
         var text = (description ?? "")
             .replacing(/\s*\[(?:IntuneDeployer|gw):[0-9a-f]{8}\]/, with: "")
+            .replacing(/\s*\[IntuneDeployerProfile:[0-9a-f]{8}\]/, with: "")
             .replacingOccurrences(of: "Managed by Intune Deployer", with: "")
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "Managed by Intune Deployer \(tag)" : "\(text) \(tag)"

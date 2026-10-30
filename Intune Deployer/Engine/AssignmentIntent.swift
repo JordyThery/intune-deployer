@@ -207,3 +207,122 @@ nonisolated struct ResolvedAssignment: Sendable, Hashable {
     /// Exclusion targets are always groups and never carry a filter.
     var isExclusion: Bool = false
 }
+
+// MARK: - Assignments as Graph sends and returns them
+
+/// The entries of an `/assign` body (they replace the object's assignments),
+/// built in one place so Plan compares exactly what Apply would send.
+nonisolated enum AssignmentBody {
+    /// Scripts use deviceManagementScriptAssignments, apps
+    /// mobileAppAssignments, other collections assignments.
+    /// TODO(verify): the configurationPolicies assign body shape follows the
+    /// documented sibling actions; its own doc page is unpublished.
+    static func parameterName(for collection: TenantCollection) -> String {
+        switch collection {
+        case .shellScripts, .customAttributes: "deviceManagementScriptAssignments"
+        case .apps: "mobileAppAssignments"
+        default: "assignments"
+        }
+    }
+
+    /// Throws when a group or filter created during this Apply has no ID yet.
+    static func entries(_ assignments: [ResolvedAssignment], collection: TenantCollection,
+                        createdGroupIDs: [String: String] = [:], createdFilterIDs: [String: String] = [:]) throws -> [[String: Any]] {
+        // App exclusions apply per install intent (the portal lists them per
+        // section), so each is sent once for every intent the includes use.
+        // TODO(verify): exclusions alongside mixed Required/Available
+        // includes have not been tested against a live tenant.
+        var includeIntents: [AssignmentIntent.AppIntent] = []
+        for assignment in assignments where !assignment.isExclusion && !includeIntents.contains(assignment.appIntent) {
+            includeIntents.append(assignment.appIntent)
+        }
+        let exclusionIntents = includeIntents.isEmpty ? [.required] : includeIntents
+
+        var entries: [[String: Any]] = []
+        for assignment in assignments {
+            let target = try target(assignment, createdGroupIDs: createdGroupIDs, createdFilterIDs: createdFilterIDs)
+            // Apps carry an install intent; every other collection only a target.
+            switch collection {
+            case .apps:
+                for intent in assignment.isExclusion ? exclusionIntents : [assignment.appIntent] {
+                    entries.append([
+                        "@odata.type": "#microsoft.graph.mobileAppAssignment",
+                        "intent": intent.rawValue,
+                        "target": target,
+                    ])
+                }
+            default:
+                entries.append(["target": target])
+            }
+        }
+        return entries
+    }
+
+    /// The Graph assignment target for one resolved include or exclusion.
+    static func target(_ assignment: ResolvedAssignment, createdGroupIDs: [String: String],
+                       createdFilterIDs: [String: String]) throws -> [String: Any] {
+        var target: [String: Any]
+        switch assignment.target {
+        case .allDevices:
+            target = ["@odata.type": "#microsoft.graph.allDevicesAssignmentTarget"]
+        case .allUsers:
+            target = ["@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget"]
+        case .group(let id, let name):
+            guard let groupID = id ?? createdGroupIDs[name] else {
+                throw PayloadError.unsupportedItem("Group “\(name)” was not created")
+            }
+            target = [
+                "@odata.type": assignment.isExclusion
+                    ? "#microsoft.graph.exclusionGroupAssignmentTarget"
+                    : "#microsoft.graph.groupAssignmentTarget",
+                "groupId": groupID,
+            ]
+        }
+        if let filter = assignment.filter, !assignment.isExclusion {
+            let filterID: String?
+            switch filter {
+            case .existing(let id): filterID = id
+            case .pendingCreation(let name): filterID = createdFilterIDs[name]
+            }
+            guard let filterID else {
+                throw PayloadError.unsupportedItem("Assignment filter was not created")
+            }
+            target["deviceAndAppManagementAssignmentFilterId"] = filterID
+            target["deviceAndAppManagementAssignmentFilterType"] = assignment.filterMode.rawValue
+        }
+        return target
+    }
+}
+
+/// One assignment, compared the same way whether built for `/assign` or
+/// read from the tenant (bug 1 of the JTKit step 11 survey): target type,
+/// group, filter and its mode, and (apps) install intent. Case and Graph's
+/// "no filter" forms don't count.
+nonisolated struct AssignmentEntry: Hashable, Sendable {
+    var targetType: String
+    var groupID: String?
+    var filterID: String?
+    var filterType: String?
+    var intent: String?
+
+    /// An `/assign` entry or an assignment as Graph returns it; nil without a target.
+    init?(graph value: Any) {
+        guard let entry = value as? [String: Any], let target = entry["target"] as? [String: Any],
+              let type = target["@odata.type"] as? String else { return nil }
+        targetType = type.lowercased()
+        groupID = (target["groupId"] as? String)?.lowercased()
+        let filter = (target["deviceAndAppManagementAssignmentFilterId"] as? String)?.lowercased()
+        if let filter, !filter.isEmpty, filter != "00000000-0000-0000-0000-000000000000" {
+            filterID = filter
+            filterType = (target["deviceAndAppManagementAssignmentFilterType"] as? String)?.lowercased()
+        }
+        intent = (entry["intent"] as? String)?.lowercased()
+    }
+
+    /// The entries Apply would send, nil while a group or filter is still to
+    /// be created (they can't match what's there).
+    static func desired(_ assignments: [ResolvedAssignment], collection: TenantCollection) -> Set<AssignmentEntry>? {
+        guard let entries = try? AssignmentBody.entries(assignments, collection: collection) else { return nil }
+        return Set(entries.compactMap { AssignmentEntry(graph: $0) })
+    }
+}

@@ -26,13 +26,13 @@ nonisolated enum ApplyConfirmation {
     }
 
     /// Whether applying would do anything: creates, updates, prerequisites,
-    /// assignment refreshes or ticked orphan deletions.
+    /// assignments that differ from the tenant's, or ticked orphan deletions.
     static func hasWork(_ plan: Plan?, deletions: Int) -> Bool {
         guard let plan else { return false }
         return plan.createCount > 0
             || plan.updateCount > 0
             || deletions > 0
-            || plan.actions.contains { $0.assignments != nil }
+            || plan.actions.contains(where: \.sendsAssignments)
     }
 
     static func canApply(_ plan: Plan?, deletions: Int, isPlanning: Bool, isApplying: Bool) -> Bool {
@@ -47,7 +47,7 @@ nonisolated enum ApplyConfirmation {
             "\(plan.createCount) create\(plan.createCount == 1 ? "" : "s")",
             "\(plan.updateCount) update\(plan.updateCount == 1 ? "" : "s")",
         ]
-        let assignmentCount = plan.actions.count { $0.assignments != nil }
+        let assignmentCount = plan.actions.count(where: \.sendsAssignments)
         if assignmentCount > 0 {
             parts.append("\(assignmentCount) assignment\(assignmentCount == 1 ? "" : "s")")
         }
