@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		087B41DE308EA69F00D0CB8A /* JTKitTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 087B41DD308EA69F00D0CB8A /* JTKitTestSupport */; };
+		088B8BB73094606700F87877 /* JTKitUITestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 088B8BB63094606700F87877 /* JTKitUITestSupport */; };
+		088B8BB93094607C00F87877 /* JTKitLiveCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 088B8BB83094607C00F87877 /* JTKitLiveCheck */; };
 		088C72F8308FE9D000A00A72 /* JTKitMSAL in Frameworks */ = {isa = PBXBuildFile; productRef = 088C72F7308FE9D000A00A72 /* JTKitMSAL */; };
 		AA00000000000000000000B2 /* JTKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000D2 /* JTKit */; };
 /* End PBXBuildFile section */
@@ -20,11 +22,19 @@
 			remoteGlobalIDString = 000000000000000100000000;
 			remoteInfo = "Intune Deployer";
 		};
+		088B8BB13094604E00F87877 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000100000000;
+			remoteInfo = "Intune Deployer";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Intune Deployer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Intune Deployer.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		080E96C330810D100014F885 /* Intune DeployerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Intune DeployerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		088B8BAD3094604E00F87877 /* Intune DeployerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Intune DeployerUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -36,6 +46,11 @@
 		080E96C430810D100014F885 /* Intune DeployerTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Intune DeployerTests";
+			sourceTree = "<group>";
+		};
+		088B8BAE3094604E00F87877 /* Intune DeployerUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Intune DeployerUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -51,7 +66,14 @@
 		080E96C030810D100014F885 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				088B8BB93094607C00F87877 /* JTKitLiveCheck in Frameworks */,
 				087B41DE308EA69F00D0CB8A /* JTKitTestSupport in Frameworks */,
+			);
+		};
+		088B8BAA3094604E00F87877 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				088B8BB73094606700F87877 /* JTKitUITestSupport in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -62,6 +84,7 @@
 			children = (
 				000000000000000000000010 /* Intune Deployer */,
 				080E96C430810D100014F885 /* Intune DeployerTests */,
+				088B8BAE3094604E00F87877 /* Intune DeployerUITests */,
 				087B41DC308EA69F00D0CB8A /* Frameworks */,
 				000000000000000000000020 /* Products */,
 			);
@@ -72,6 +95,7 @@
 			children = (
 				000000000000000000000120 /* Intune Deployer.app */,
 				080E96C330810D100014F885 /* Intune DeployerTests.xctest */,
+				088B8BAD3094604E00F87877 /* Intune DeployerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -127,10 +151,35 @@
 			name = "Intune DeployerTests";
 			packageProductDependencies = (
 				087B41DD308EA69F00D0CB8A /* JTKitTestSupport */,
+				088B8BB83094607C00F87877 /* JTKitLiveCheck */,
 			);
 			productName = "Intune DeployerTests";
 			productReference = 080E96C330810D100014F885 /* Intune DeployerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		088B8BAC3094604E00F87877 /* Intune DeployerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 088B8BB53094604E00F87877 /* Build configuration list for PBXNativeTarget "Intune DeployerUITests" */;
+			buildPhases = (
+				088B8BA93094604E00F87877 /* Sources */,
+				088B8BAA3094604E00F87877 /* Frameworks */,
+				088B8BAB3094604E00F87877 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				088B8BB23094604E00F87877 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				088B8BAE3094604E00F87877 /* Intune DeployerUITests */,
+			);
+			name = "Intune DeployerUITests";
+			packageProductDependencies = (
+				088B8BB63094606700F87877 /* JTKitUITestSupport */,
+			);
+			productName = "Intune DeployerUITests";
+			productReference = 088B8BAD3094604E00F87877 /* Intune DeployerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -139,7 +188,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
+				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					000000000000000100000000 = {
@@ -147,6 +196,10 @@
 					};
 					080E96C230810D100014F885 = {
 						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 000000000000000100000000;
+					};
+					088B8BAC3094604E00F87877 = {
+						CreatedOnToolsVersion = 27.1;
 						TestTargetID = 000000000000000100000000;
 					};
 				};
@@ -170,6 +223,7 @@
 			targets = (
 				000000000000000100000000 /* Intune Deployer */,
 				080E96C230810D100014F885 /* Intune DeployerTests */,
+				088B8BAC3094604E00F87877 /* Intune DeployerUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -181,6 +235,11 @@
 			);
 		};
 		080E96C130810D100014F885 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		088B8BAB3094604E00F87877 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -198,6 +257,11 @@
 			files = (
 			);
 		};
+		088B8BA93094604E00F87877 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -205,6 +269,11 @@
 			isa = PBXTargetDependency;
 			target = 000000000000000100000000 /* Intune Deployer */;
 			targetProxy = 080E96C730810D100014F885 /* PBXContainerItemProxy */;
+		};
+		088B8BB23094604E00F87877 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000100000000 /* Intune Deployer */;
+			targetProxy = 088B8BB13094604E00F87877 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -485,6 +554,48 @@
 			};
 			name = Release;
 		};
+		088B8BB33094604E00F87877 /* Debug configuration for PBXNativeTarget "Intune DeployerUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = K3LQ9NPBMG;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "be.jordythery.Intune-DeployerUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Intune Deployer";
+			};
+			name = Debug;
+		};
+		088B8BB43094604E00F87877 /* Release configuration for PBXNativeTarget "Intune DeployerUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = K3LQ9NPBMG;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "be.jordythery.Intune-DeployerUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Intune Deployer";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -512,6 +623,14 @@
 			);
 			defaultConfigurationName = Release;
 		};
+		088B8BB53094604E00F87877 /* Build configuration list for PBXNativeTarget "Intune DeployerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				088B8BB33094604E00F87877 /* Debug configuration for PBXNativeTarget "Intune DeployerUITests" */,
+				088B8BB43094604E00F87877 /* Release configuration for PBXNativeTarget "Intune DeployerUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -520,7 +639,7 @@
 			repositoryURL = "https://github.com/JordyThery/JTKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.11.7;
+				minimumVersion = 0.12.5;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -530,6 +649,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
 			productName = JTKitTestSupport;
+		};
+		088B8BB63094606700F87877 /* JTKitUITestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
+			productName = JTKitUITestSupport;
+		};
+		088B8BB83094607C00F87877 /* JTKitLiveCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000E2 /* XCRemoteSwiftPackageReference "JTKit" */;
+			productName = JTKitLiveCheck;
 		};
 		088C72F7308FE9D000A00A72 /* JTKitMSAL */ = {
 			isa = XCSwiftPackageProductDependency;

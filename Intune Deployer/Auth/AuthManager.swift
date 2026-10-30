@@ -74,6 +74,21 @@ nonisolated enum GraphScopes {
     }
 }
 
+/// How a real (non-demo) tenant may sign in under tests (JTKit ROADMAP step 11).
+enum UnderTestSignIn {
+    /// Not under tests: MSAL as always.
+    case off
+    /// Under tests: every saved tenant is refused before MSAL is reached,
+    /// and the attempt written down.
+    case refuseAll(SavedTenantGuard)
+    /// The release check's live checks: only the profile of exactly this
+    /// Entra tenant ID, with its account matched strictly by tenant (no
+    /// "only account" fallback) and tokens from MSAL's cache only. When MSAL
+    /// needs its window the token fails (`interactionRequired`); a window is
+    /// never opened. Every other tenant is refused as above.
+    case liveCheck(tenantID: String, guard: SavedTenantGuard)
+}
+
 /// The per-tenant sign-in state the screens show, on JTKit's Microsoft
 /// sign-in (`JTKitMSAL`): every tenant profile carries its own client ID +
 /// tenant ID, and has its own signed-in account. One `MicrosoftSignIn` is
@@ -102,14 +117,42 @@ final class AuthManager {
     /// Permissions the demo tenant was asked for: granted as asked, step by
     /// step, like consent in a real tenant.
     private var demoScopes: [String] = GraphScopes.tenantRead
+    @ObservationIgnored let underTest: UnderTestSignIn
 
     /// - Parameters:
     ///   - demo: the app's demo mode; nil without demo mode.
     ///   - makeSignIn: MSAL's sign-in for a client ID; a trap in tests.
+    ///   - underTest: under tests every saved tenant is refused by default.
     init(demo: DemoMode? = nil,
-         makeSignIn: @escaping @MainActor (String) throws -> MicrosoftSignIn = { try MicrosoftSignIn(clientID: $0) }) {
+         makeSignIn: @escaping @MainActor (String) throws -> MicrosoftSignIn = { try MicrosoftSignIn(clientID: $0) },
+         underTest: UnderTestSignIn = UnderTest.isActive ? .refuseAll(.shared) : .off) {
         self.demo = demo
         self.makeSignIn = makeSignIn
+        self.underTest = underTest
+    }
+
+    /// Under tests: nil when this tenant may be reached (the live checks'
+    /// tenant), else the guard that refuses it. Never for the demo tenant.
+    private func refusingGuard(for profile: TenantProfile) -> SavedTenantGuard? {
+        switch underTest {
+        case .off: nil
+        case .refuseAll(let savedTenantGuard): savedTenantGuard
+        case .liveCheck(let tenantID, let savedTenantGuard):
+            profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased() == tenantID.lowercased() ? nil : savedTenantGuard
+        }
+    }
+
+    /// The guard of this mode, nil when not under tests.
+    private var underTestGuard: SavedTenantGuard? {
+        switch underTest {
+        case .off: nil
+        case .refuseAll(let savedTenantGuard), .liveCheck(_, let savedTenantGuard): savedTenantGuard
+        }
+    }
+
+    private var isLiveCheck: Bool {
+        if case .liveCheck = underTest { return true }
+        return false
     }
 
     /// The demo tenant's account, while there is a demo mode.
@@ -143,9 +186,17 @@ final class AuthManager {
     /// saved one, else one whose home tenant matches, else the only one
     /// (covers profiles configured with a verified domain instead of a GUID).
     func restoreAccount(for profile: TenantProfile) {
-        guard !profile.isDemo, accountsByProfile[profile.id] == nil,
-              let microsoft = try? signIn(for: profile),
-              let account = microsoft.savedAccount(identifier: profile.accountIdentifier, tenantID: profile.tenantID) else { return }
+        guard !profile.isDemo, accountsByProfile[profile.id] == nil else { return }
+        if let refusing = refusingGuard(for: profile) {
+            refusing.record("restore the saved sign-in of a saved tenant")
+            return
+        }
+        guard let microsoft = try? signIn(for: profile) else { return }
+        // The live checks: exactly this tenant's account, never another's.
+        let account = isLiveCheck
+            ? microsoft.account(strictlyFor: profile.tenantID, identifier: profile.accountIdentifier)
+            : microsoft.savedAccount(identifier: profile.accountIdentifier, tenantID: profile.tenantID)
+        guard let account else { return }
         accountsByProfile[profile.id] = SignedInAccount(account)
     }
 
@@ -158,6 +209,12 @@ final class AuthManager {
         if profile.isDemo {
             guard let account = demoAccount else { throw MicrosoftSignInError.notSignedIn }
             return account
+        }
+        // Under tests Microsoft's window is never opened, not even for the
+        // live checks' tenant.
+        if case .off = underTest {} else {
+            underTestGuard?.record("interactive sign-in")
+            throw UnderTestRefusal()
         }
         let microsoft = try signIn(for: profile)
         signingInProfileIDs.insert(profile.id)
@@ -173,6 +230,14 @@ final class AuthManager {
 
     func signOut(profile: TenantProfile) async {
         guard !profile.isDemo else { return }
+        // Under tests MSAL's cache is never changed. A tenant without a
+        // signed-in account (one just deleted in Settings) has nothing to
+        // sign out of: nothing would reach MSAL.
+        if case .off = underTest {} else {
+            guard accountsByProfile[profile.id] != nil else { return }
+            underTestGuard?.record("sign out of a saved tenant")
+            return
+        }
         defer {
             accountsByProfile[profile.id] = nil
             grantedScopesByProfile[profile.id] = nil
@@ -195,13 +260,19 @@ final class AuthManager {
             demoScopes += scopes.filter { !demoScopes.contains($0) }
             return demo.microsoftSignIn().accessToken
         }
+        if let refusing = refusingGuard(for: profile) {
+            refusing.record("token for a saved tenant")
+            throw UnderTestRefusal()
+        }
         let microsoft = try signIn(for: profile)
         guard let identifier = accountsByProfile[profile.id]?.identifier,
               let account = microsoft.account(identifier: identifier) else {
             throw MicrosoftSignInError.notSignedIn
         }
-        let token = try await microsoft.token(for: account, tenantID: profile.tenantID, scopes: scopes,
-                                              forceRefresh: forceRefresh)
+        // The live checks: MSAL's cache only, never the window.
+        let token = isLiveCheck
+            ? try await microsoft.silentToken(for: account, tenantID: profile.tenantID, scopes: scopes, forceRefresh: forceRefresh)
+            : try await microsoft.token(for: account, tenantID: profile.tenantID, scopes: scopes, forceRefresh: forceRefresh)
         accountsByProfile[profile.id] = SignedInAccount(token.account)
         grantedScopesByProfile[profile.id] = token.scopes
         return token.accessToken

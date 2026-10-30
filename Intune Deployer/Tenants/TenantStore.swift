@@ -134,9 +134,8 @@ final class TenantStore {
     // MARK: - Persistence
 
     private static func defaultStorageURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return base.appendingPathComponent("Intune Deployer", isDirectory: true)
-            .appendingPathComponent("tenants.json")
+        // Application Support/Intune Deployer; under the unit tests a temporary folder.
+        UnderTest.dataFolder.appendingPathComponent("tenants.json")
     }
 
     private func saveSelection() {

@@ -7,8 +7,7 @@ import Testing
 @MainActor
 struct GuidedTourTests {
     @Test func keepsTheExistingTourSeenSetting() throws {
-        let name = "IntuneDeployerTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let (name, defaults) = TestSettings.makeDefaults("tour")
         defer { defaults.removePersistentDomain(forName: name) }
 
         // Someone who already saw the tour under the old code doesn't see it again.

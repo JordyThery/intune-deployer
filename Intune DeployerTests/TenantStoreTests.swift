@@ -14,7 +14,7 @@ struct TenantStoreTests {
     private var fileURL: URL { folder.appending(path: "tenants.json") }
 
     private func makeDefaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "intune-deployer-tenant-tests-\(UUID().uuidString)"))
+        TestSettings.makeDefaults("tenant-tests").defaults
     }
 
     private func cleanUp() {

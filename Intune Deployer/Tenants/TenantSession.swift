@@ -36,10 +36,20 @@ final class TenantSession {
     /// results so a tenant switch discards stale data.
     var generation = 0
 
-    init(auth: AuthManager, activityLog: ActivityLog, demo: DemoMode? = nil) {
+    /// A real tenant's network: the real one; under tests one that refuses
+    /// and records every request (`SavedTenantGuard`), or the release
+    /// check's guarded network for its live checks.
+    @ObservationIgnored private let realTenantSession: URLSession
+
+    /// - Parameter realTenantSession: the live checks' guarded network (JTKit
+    ///   `LiveCheckNetwork`); by default the real network, under tests a
+    ///   refusing one.
+    init(auth: AuthManager, activityLog: ActivityLog, demo: DemoMode? = nil, realTenantSession: URLSession? = nil) {
         self.auth = auth
         self.activityLog = activityLog
         self.demo = demo
+        self.realTenantSession = realTenantSession
+            ?? (UnderTest.isActive ? SavedTenantGuard.shared.refusingSession(kind: "Graph") : .shared)
     }
 
     /// Clears per-tenant state when the selected profile changes.
@@ -70,7 +80,7 @@ final class TenantSession {
             prepareDemoTenant()
             session = demo?.microsoftSignIn().session ?? DemoNetwork(servers: [:]).session
         } else {
-            session = .shared
+            session = realTenantSession
         }
         return Graph.Client(tokens: tokens, access: .delegated,
                             recorder: Graph.recorder(session: session, log: activityLog, connection: profile.displayName))
