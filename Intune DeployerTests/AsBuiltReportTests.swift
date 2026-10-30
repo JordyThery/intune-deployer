@@ -21,7 +21,7 @@ struct AsBuiltReportTests {
         plan.groupsToCreate = [PlannedGroupCreation(name: "macOS Pilots")]
         return AsBuiltReport.Input(
             profileName: "Demo & Co <test>",
-            tenantID: "efccb476-07c8-4c09-be3d-6927868b2402",
+            tenantID: "00000000-0000-4000-8000-0000000000d1",
             namingPrefix: "[CONTOSO]",
             plan: plan,
             results: [

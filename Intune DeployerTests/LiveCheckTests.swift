@@ -293,7 +293,8 @@ private func removeOutstanding(_ tenant: LiveTenant) async -> [String] {
                 try await tenant.api.delete("\(location.path)/\(item.id)", version: location.version)
                 removed = true
             } catch where status(of: error) == 404 {
-                tenant.run.ledger.markRemoved(target: item.target, resource: item.resource, id: item.id)
+                // Not counted from the answer: JTKit's read-back (0.12.6)
+                // marks it removed only when the object is gone.
                 removed = true
             } catch {
                 if attempt == 7 { problems.append("\(item.resource) “\(item.name)”: \(failure(error))") }
