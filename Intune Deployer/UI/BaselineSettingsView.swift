@@ -19,6 +19,18 @@ struct BaselineSettingsView: View {
             Form {
                 Section {
                     TextField("Naming prefix", text: $profile.namingPrefix, prompt: Text("[CONTOSO]"))
+                    if let sharing = prefixSharingNote {
+                        Label {
+                            Text(sharing)
+                                .font(.callout)
+                        } icon: {
+                            // The system's warning look, readable on light and dark.
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .symbolRenderingMode(.multicolor)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Warning: \(sharing)")
+                    }
                     Toggle("Allow creating missing Entra groups on Apply", isOn: $profile.allowGroupCreation)
                         .help("Requests Group.ReadWrite.All; without this, a missing assignment group is a plan error")
                 } header: {
@@ -95,6 +107,14 @@ struct BaselineSettingsView: View {
 
     /// The sheet's baseline on top of the profile as saved now: items ticked
     /// or a sign-in while the sheet was open are kept.
+    /// Why this prefix needs care, when another profile uses it too.
+    private var prefixSharingNote: String? {
+        let others = tenantStore.profiles(sharingPrefix: profile.namingPrefix, besides: profile.id)
+        guard !others.isEmpty else { return nil }
+        let names = others.map { "“\($0.displayName)”" }.formatted(.list(type: .and))
+        return "\(names) \(others.count == 1 ? "uses" : "use") this prefix too. Older objects are matched by prefix, so both profiles could delete them. Use a prefix of its own."
+    }
+
     private var baselineToSave: TenantProfile {
         guard var current = tenantStore.profile(id: profile.id) else { return profile }
         current.namingPrefix = profile.namingPrefix

@@ -91,6 +91,7 @@ private struct LiveTenant {
     let run: LiveCheckRun
     let tenantID: String
     let profile: TenantProfile
+    var profileID: UUID { profile.id }
     let auth: AuthManager
     let log = ActivityLog()
     /// The test code's client: creates the group, reads back, removes.
@@ -404,11 +405,6 @@ struct LiveSignInTests {
 @MainActor
 @Suite("Live: baseline lifecycle", .enabled(if: live), .serialized)
 struct LiveLifecycleTests {
-    /// While bug 1 (assignments are never compared) isn't fixed, an Apply of
-    /// an unchanged baseline sends every assignment again. Once it's fixed,
-    /// set this to false: the second Apply must then send nothing.
-    static let resendsAssignmentsUntilBug1IsFixed = true
-
     @Test func baseline() async throws {
         let run = try LiveCheckRun.current()
         checkNoSavedTenantRequests(run, when: "before the lifecycle")
@@ -538,8 +534,10 @@ struct LiveLifecycleTests {
         try require("Plan assigns only to the test group (never All devices, All users or another group)", onlyTheGroup,
                     note: "\(assigned.count) assigned objects")
         let othersTagged = plan.orphans.count
-        run.record(step: step("Plan leaves the tenant's other Intune Deployer objects alone"), passed: true,
-                   note: "\(othersTagged) listed as orphans, none ticked")
+        // Only this run's profile's objects can be orphans (bug 2): the
+        // tenant's other Intune Deployer objects aren't listed at all.
+        try require("Plan lists none of the tenant's other Intune Deployer objects as orphans", othersTagged == 0,
+                    note: "\(othersTagged) listed")
 
         // 4. Apply (the app's own): creates and assignments only.
         fence.set(.init(name: "Apply: creates and assignments") { method, path in
@@ -547,7 +545,7 @@ struct LiveLifecycleTests {
         })
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: store)
         let created = tenant.runObjects().filter { $0.resource != "groups" }
-        try require("Apply: five created and four assigned, nothing failed",
+        try require("Apply: five created and four assigned (the run's group only), nothing failed",
                     applyFailures().isEmpty && created.count == 5 && fence.refusals.isEmpty
                         && fence.writes.count(where: { $0.hasSuffix("/assign") }) == 4,
                     note: (applyFailures() + fence.refusals).joined(separator: "; "))
@@ -576,18 +574,17 @@ struct LiveLifecycleTests {
             throw LiveFailure("all-devices-attempt: an assignment to All devices was attempted")
         }
 
-        // 6. A second Apply of the unchanged baseline.
+        // 6. A second Apply of the unchanged baseline sends nothing: the
+        // assignments are compared, not sent again (bug 1, fixed 2026-10-30).
+        try require("the second Plan finds the assignments up to date",
+                    plan.actions.allSatisfy { !$0.sendsAssignments } && !ApplyConfirmation.hasWork(plan, deletions: 0),
+                    note: "\(plan.actions.count(where: \.sendsAssignments)) assignments would be sent")
         let writesBefore = fence.writes.count
-        fence.set(.init(name: "second Apply: assignments only") { method, path in Fence.isRead(method) || Fence.isAssign(method, path) })
+        fence.set(.init(name: "second Apply: reads only") { method, _ in Fence.isRead(method) })
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: store)
         let resent = Array(fence.writes.dropFirst(writesBefore))
-        if Self.resendsAssignmentsUntilBug1IsFixed {
-            try require("second Apply sends only the assignments again (bug 1, still to fix)",
-                        applyFailures().isEmpty && fence.refusals.isEmpty && resent.allSatisfy { $0.hasSuffix("/assign") },
-                        note: "\(resent.count) assignments sent again, each replacing the same set; once bug 1 is fixed this must be 0")
-        } else {
-            try require("second Apply sends nothing", applyFailures().isEmpty && resent.isEmpty, note: resent.joined(separator: "; "))
-        }
+        try require("second Apply sends nothing", applyFailures().isEmpty && resent.isEmpty && fence.refusals.isEmpty,
+                    note: (resent + fence.refusals).joined(separator: "; "))
 
         // 7. One update: the script changes; Plan shows exactly that.
         try Data("#!/bin/zsh\necho \"JTKTEST live check, updated\"\n".utf8).write(to: root.appending(path: "Scripts/hello.sh"))
@@ -596,10 +593,11 @@ struct LiveLifecycleTests {
         try require("Plan after editing the script: one update, four unchanged",
                     !plan.hasErrors && updates.count == 1 && updates.first?.collection == .shellScripts && plan.unchangedCount == 4
                         && plan.createCount == 0, note: describe(plan))
-        fence.set(.init(name: "Apply: the update and assignments") { method, path in
+        // Only the script's update: its assignments are already as intended.
+        fence.set(.init(name: "Apply: the update only") { method, path in
             let parts = Fence.segments(path)
             let onObject = parts.count >= 2 && Fence.isID(parts.last ?? "")
-            return Fence.isRead(method) || Fence.isAssign(method, path) || ((method == "PATCH" || method == "PUT") && onObject)
+            return Fence.isRead(method) || ((method == "PATCH" || method == "PUT") && onObject)
         })
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: store)
         try require("Apply the update", applyFailures().isEmpty && fence.refusals.isEmpty, note: applyFailures().joined(separator: "; "))
@@ -695,8 +693,8 @@ struct LiveLifecycleTests {
             let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
             let name = object["displayName"] as? String ?? object["name"] as? String ?? ""
             if !name.hasPrefix(tenant.run.prefix) { problems.append("\(action.collection.displayName): name without the run's prefix") }
-            if !(object["description"] as? String ?? "").contains(ItemIdentity.tag(forShortID: action.id)) {
-                problems.append("\(action.collection.displayName): no identity tag")
+            if !(object["description"] as? String ?? "").contains(ItemIdentity.tag(forShortID: action.id, profileID: tenant.profileID)) {
+                problems.append("\(action.collection.displayName): no identity and profile tag")
             }
             func script() -> String {
                 (object["scriptContent"] as? String).flatMap { Data(base64Encoded: $0) }.map { String(decoding: $0, as: UTF8.self) } ?? ""
@@ -747,7 +745,8 @@ struct LiveLifecycleTests {
             }
             if !onlyTheGroup { problems.append("\(action.collection.displayName): assigned to \(targets.count) targets, not only the test group") }
         }
-        try require("read back: names, identity tags, content and assignments match", problems.isEmpty, problems.joined(separator: "; "))
+        try require("read back: names, identity and profile tags, content and assignments match", problems.isEmpty,
+                    problems.joined(separator: "; "))
     }
 }
 

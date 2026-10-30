@@ -124,6 +124,19 @@ final class TenantStore {
         }
     }
 
+    /// The other saved profiles whose naming prefix is this one (trimmed,
+    /// ignoring case); none for an empty prefix. Objects deployed before
+    /// profile tags are matched to a profile by this prefix, so two profiles
+    /// sharing it could both claim them (Baseline Settings warns).
+    func profiles(sharingPrefix prefix: String, besides profileID: UUID) -> [TenantProfile] {
+        let wanted = prefix.trimmingCharacters(in: .whitespaces)
+        guard !wanted.isEmpty else { return [] }
+        return profiles.filter {
+            $0.id != profileID
+                && $0.namingPrefix.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(wanted) == .orderedSame
+        }
+    }
+
     /// "Import Tenant Profile…" in the + menu.
     func makeImport() -> ConnectionImport<TenantProfile> {
         ConnectionImport(title: "Import Tenant Profile…", contentTypes: [.json]) { data in

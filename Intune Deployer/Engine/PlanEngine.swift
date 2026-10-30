@@ -15,6 +15,8 @@ nonisolated struct RemoteObject: Sendable {
 nonisolated enum GroupLookup: Sendable {
     case found(id: String, isDynamic: Bool)
     case missing
+    /// Several groups have this name: which one is meant can't be told (bug 6).
+    case ambiguous(count: Int)
 }
 
 /// Everything the pure plan computation needs — fetched up front so the
@@ -46,6 +48,10 @@ nonisolated struct PlanInput: Sendable {
     /// Valid Settings Catalog setting definition IDs; nil when the tenant
     /// catalog could not be fetched (validation skipped with a warning).
     let knownSettingDefinitionIDs: Set<String>?
+    /// The assignments of tagged tenant objects, by object ID (lowercased),
+    /// read at plan time; an object missing here couldn't be read, and its
+    /// assignments are sent again.
+    var existingAssignments: [String: Set<AssignmentEntry>] = [:]
 }
 
 nonisolated extension TenantCollection {
@@ -85,7 +91,8 @@ nonisolated enum PlanEngine {
                     fileData: selected.fileData,
                     namingPrefix: input.profile.namingPrefix,
                     variables: input.profile.variables,
-                    appInfo: selected.appInfo
+                    appInfo: selected.appInfo,
+                    profileID: input.profile.id
                 )
                 if built.collection == .assignmentFilters {
                     pendingFilterNames[built.displayName.lowercased()] = (built.displayName, selected.item.platform)
@@ -167,7 +174,7 @@ nonisolated enum PlanEngine {
                 matchedObjectIDs.insert(existing.id)
             }
 
-            let kind: PlanActionKind
+            var kind: PlanActionKind
             var settingChanges: [SettingChange] = []
             if let existing {
                 do {
@@ -208,6 +215,25 @@ nonisolated enum PlanEngine {
                 kind = .create
             }
 
+            // An app whose content never arrived (the upload failed after the
+            // create) has no committed content version: upload it again (bug 4).
+            if built.collection == .apps, let existing, !Self.hasCommittedContent(existing) {
+                let missing = FieldChange(path: Self.missingContentPath, oldValue: "no content", newValue: "upload the package")
+                switch kind {
+                case .update(let changes): kind = .update(changes + [missing])
+                default: kind = .update([missing])
+                }
+                warnings.append("The app in the tenant has no uploaded content — the package is uploaded again")
+            }
+
+            // Assignments already exactly as intended: Apply sends none (bug 1).
+            var assignmentsUpToDate = false
+            if let existing, let assignments,
+               let desired = AssignmentEntry.desired(assignments, collection: built.collection),
+               let remote = input.existingAssignments[existing.id.lowercased()] {
+                assignmentsUpToDate = desired == remote
+            }
+
             plan.actions.append(PlanItemAction(
                 id: item.id,
                 collection: built.collection,
@@ -217,7 +243,8 @@ nonisolated enum PlanEngine {
                 existingObjectID: existing?.id,
                 assignments: assignments,
                 settingChanges: settingChanges,
-                warnings: warnings
+                warnings: warnings,
+                assignmentsUpToDate: assignmentsUpToDate
             ))
         }
 
@@ -231,10 +258,13 @@ nonisolated enum PlanEngine {
 
         // Orphans: objects tagged by us that no selected item matched — the
         // item was deselected, deploys to another collection, or changed its
-        // Graph type (platform change). Untagged objects are never considered.
+        // Graph type (platform change). Untagged objects are never considered,
+        // and only this profile's objects are (bug 2): another profile's
+        // objects in the same tenant are not its orphans.
         for (collection, objects) in input.existingObjects {
             for object in objects {
-                if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id) {
+                if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id),
+                   ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: input.profile) {
                     plan.orphans.append(OrphanedObject(
                         collection: collection,
                         objectID: object.id,
@@ -245,7 +275,19 @@ nonisolated enum PlanEngine {
             }
         }
         plan.orphans.sort { $0.displayName < $1.displayName }
+        plan.profileID = input.profile.id
+        plan.tenantID = input.profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
         return plan
+    }
+
+    /// The change that makes Apply upload an app's package again.
+    static let missingContentPath = "committedContentVersion"
+
+    /// Whether a tenant app has committed (uploaded) content.
+    private static func hasCommittedContent(_ object: RemoteObject) -> Bool {
+        let dict = try? JSONSerialization.jsonObject(with: object.body) as? [String: Any]
+        guard let version = dict?["committedContentVersion"] as? String else { return false }
+        return !version.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Fields the service rewrites or returns inconsistently, excluded from
@@ -409,6 +451,13 @@ nonisolated enum PlanEngine {
                     warnings.append("“\(name)” is a dynamic group — delivery of enrollment-critical policies may be delayed past Await Configuration")
                 }
                 target = .group(id: id, name: name)
+            case .ambiguous(let count):
+                issues.append(PlanIssue(
+                    severity: .error,
+                    itemName: itemName,
+                    message: "\(count) groups are named “\(name)”, so which one is meant can't be told. Rename them so the name is unique."
+                ))
+                return nil
             case .missing, nil:
                 if input.profile.allowGroupCreation {
                     groupsToCreate.insert(name)
@@ -429,10 +478,18 @@ nonisolated enum PlanEngine {
         var filter: ResolvedAssignment.FilterResolution?
         let filterName = isExclusion ? "" : spec.filterName.trimmingCharacters(in: .whitespaces)
         if !filterName.isEmpty {
-            // nil = platform unknown (older object without the field): skip.
+            // nil = the tenant's filter names no platform: it can't be checked,
+            // so it isn't assigned (bug 10; before, the check was skipped).
             func requirePlatform(_ filterPlatformValue: String?) -> Bool {
-                guard let filterPlatformValue,
-                      filterPlatformValue.caseInsensitiveCompare(itemPlatform.filterPlatformValue) != .orderedSame else {
+                guard let filterPlatformValue else {
+                    issues.append(PlanIssue(
+                        severity: .error,
+                        itemName: itemName,
+                        message: "Filter “\(filterName)” has no platform in the tenant, so it can't be checked against \(itemPlatform.displayName) items. Check the filter in the Intune portal."
+                    ))
+                    return false
+                }
+                guard filterPlatformValue.caseInsensitiveCompare(itemPlatform.filterPlatformValue) != .orderedSame else {
                     return true
                 }
                 issues.append(PlanIssue(
@@ -486,7 +543,7 @@ nonisolated enum PlanEngine {
     }
 
     /// The devicePlatformType value of an existing tenant filter; nil when
-    /// the body carries none (the platform check is then skipped).
+    /// the body carries none (the filter is then refused).
     private static func filterPlatformValue(of filter: RemoteObject) -> String? {
         let dict = try? JSONSerialization.jsonObject(with: filter.body) as? [String: Any]
         return dict?["platform"] as? String

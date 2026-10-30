@@ -12,8 +12,10 @@ Microsoft Graph. No manifests, no PowerShell.
 - **Dry-run by default.** Nothing is written to a tenant without an explicit
   Apply with a confirmation summary.
 - **Idempotent.** Objects created by the app carry an identity tag
-  (`[IntuneDeployer:xxxxxxxx]` in the description). Re-runs update instead of
-  duplicating; objects without the tag are never modified or deleted.
+  (`[IntuneDeployer:xxxxxxxx]` in the description) and the tag of the tenant
+  profile that deployed them (`[IntuneDeployerProfile:xxxxxxxx]`). Re-runs
+  update instead of duplicating, and send assignments only when they differ
+  from the tenant's; objects without the tag are never modified or deleted.
 - **Multi-tenant.** Each tenant profile has its own app registration, account,
   item selection, variables and assignment intents.
 
@@ -261,10 +263,16 @@ and release tag are shown with every item.
   reported as changes; settings whose names cannot be read from the tenant
   show their definition ID.
 - Orphaned objects (tagged but no longer selected) are only deleted when
-  explicitly ticked.
-- **Remove Baseline** deletes every tagged object in a tenant (including
-  objects tagged by earlier builds) after typing the tenant profile name to
-  confirm. Untagged objects are never touched.
+  explicitly ticked, and only the tenant profile's own objects are listed.
+  Objects deployed before profile tags count as the profile's when their name
+  carries its naming prefix.
+- **Remove Baseline** deletes the tenant profile's own tagged objects, the
+  built-in template filters it created and the groups it created that have no
+  members, after typing the tenant profile name to confirm. Other profiles'
+  objects and untagged objects are never touched.
+- Every write is sent only with a sign-in token of the profile's tenant; a
+  profile with a verified domain is checked against that tenant's domains
+  first. Apply refuses a plan made for another tenant profile.
 - A read-only preflight checklist verifies tenant readiness (MDM authority,
   Apple MDM push certificate and ADE token expiry), and the tenant view lists
   every object the app manages.

@@ -42,6 +42,15 @@ nonisolated struct PlanItemAction: Sendable, Identifiable {
     /// the raw field changes stay in `kind`.
     var settingChanges: [SettingChange] = []
     let warnings: [String]
+    /// The tenant object's assignments are already exactly `assignments`
+    /// (read at plan time), so Apply sends none (bug 1). False when they
+    /// couldn't be read: Apply then sends them.
+    var assignmentsUpToDate = false
+
+    /// Whether Apply sends this action's assignments.
+    var sendsAssignments: Bool {
+        assignments != nil && (kind == .create || !assignmentsUpToDate)
+    }
 }
 
 /// A static security group the apply step will create (opt-in only).
@@ -83,6 +92,10 @@ nonisolated struct PlanIssue: Sendable, Identifiable {
 
 /// The dry-run result. Nothing is written until the user applies it.
 nonisolated struct Plan: Sendable {
+    /// The profile and tenant the plan was made for; Apply refuses it for
+    /// any other (bug 7). Nil only in plans made by tests.
+    var profileID: UUID?
+    var tenantID: String?
     var actions: [PlanItemAction] = []
     var groupsToCreate: [PlannedGroupCreation] = []
     var filtersToCreate: [PlannedFilterCreation] = []

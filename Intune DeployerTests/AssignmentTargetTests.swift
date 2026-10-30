@@ -213,7 +213,8 @@ struct SettingsCatalogDiffTests {
     @Test func reorderedSettingsPlanAsUnchangedButRealChangesStillUpdate() throws {
         let item = makeItem("sc/p.json", type: .settingsCatalog)
         let profile = TenantProfile(displayName: "T", clientID: "c", tenantID: "t", selectedItemIDs: [item.id])
-        let built = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8), namingPrefix: "", variables: [:])
+        let built = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8), namingPrefix: "", variables: [:],
+                                             profileID: profile.id)
 
         // Same body, settings array reversed on the remote side.
         var remoteDict = try #require(try JSONSerialization.jsonObject(with: built.body) as? [String: Any])
@@ -247,7 +248,8 @@ struct SettingsCatalogDiffTests {
     @Test func changesOutsideComparedFieldsFallBackToRawUpdate() throws {
         let item = makeItem("sc/p.json", type: .settingsCatalog)
         let profile = TenantProfile(displayName: "T", clientID: "c", tenantID: "t", selectedItemIDs: [item.id])
-        let built = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8), namingPrefix: "", variables: [:])
+        let built = try PayloadBuilder.build(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8), namingPrefix: "", variables: [:],
+                                             profileID: profile.id)
         func planAgainst(_ edit: (inout [String: Any]) -> Void) throws -> PlanItemAction? {
             var remoteDict = try #require(try JSONSerialization.jsonObject(with: built.body) as? [String: Any])
             edit(&remoteDict)

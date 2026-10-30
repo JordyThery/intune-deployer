@@ -356,21 +356,23 @@ struct PlatformPlanTests {
         // macOSCustomConfiguration and is now iOS must plan as a create,
         // with the old object offered as an orphan.
         let item = makeItem("p.mobileconfig", type: .customConfiguration, platform: .iOSiPadOS)
+        let profile = makeProfile(item, variables: ["OrgName": "Contoso"])
         let deployedAsMac = try PayloadBuilder.build(
             item: makeItem("p.mobileconfig", type: .customConfiguration, platform: .macOS),
             fileData: Data(Fixtures.mobileconfig.utf8),
             namingPrefix: "",
-            variables: ["OrgName": "Contoso"]
+            variables: ["OrgName": "Contoso"],
+            profileID: profile.id
         )
         let remote = RemoteObject(
             id: "obj-1",
             displayName: deployedAsMac.displayName,
-            description: "x [IntuneDeployer:\(item.id)]",
+            description: "x [IntuneDeployer:\(item.id)] \(ItemIdentity.profileTag(for: profile.id))",
             body: deployedAsMac.body
         )
         let result = PlanEngine.makePlan(input: PlanInput(
             selectedItems: [.init(item: item, fileData: Data(Fixtures.mobileconfig.utf8))],
-            profile: makeProfile(item, variables: ["OrgName": "Contoso"]),
+            profile: profile,
             existingObjects: [.deviceConfigurations: [remote]],
             groups: [:],
             knownSettingDefinitionIDs: nil

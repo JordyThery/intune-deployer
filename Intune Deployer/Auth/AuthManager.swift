@@ -183,8 +183,10 @@ final class AuthManager {
     // MARK: - Cache restore
 
     /// Restores this profile's cached account from the keychain, if any: the
-    /// saved one, else one whose home tenant matches, else the only one
-    /// (covers profiles configured with a verified domain instead of a GUID).
+    /// saved one, else (for a tenant ID) the one account whose home tenant is
+    /// exactly that tenant. Never "the only account" whatever its tenant
+    /// (bug 5): a guest account is found by its saved identifier, and every
+    /// token is checked against the profile's tenant before anything is sent.
     func restoreAccount(for profile: TenantProfile) {
         guard !profile.isDemo, accountsByProfile[profile.id] == nil else { return }
         if let refusing = refusingGuard(for: profile) {
@@ -193,9 +195,16 @@ final class AuthManager {
         }
         guard let microsoft = try? signIn(for: profile) else { return }
         // The live checks: exactly this tenant's account, never another's.
-        let account = isLiveCheck
-            ? microsoft.account(strictlyFor: profile.tenantID, identifier: profile.accountIdentifier)
-            : microsoft.savedAccount(identifier: profile.accountIdentifier, tenantID: profile.tenantID)
+        let account: MicrosoftAccount?
+        if isLiveCheck {
+            account = microsoft.account(strictlyFor: profile.tenantID, identifier: profile.accountIdentifier)
+        } else if let identifier = profile.accountIdentifier, let saved = microsoft.account(identifier: identifier) {
+            account = saved
+        } else if UUID(uuidString: profile.tenantID.trimmingCharacters(in: .whitespaces)) != nil {
+            account = microsoft.account(strictlyFor: profile.tenantID, identifier: nil)
+        } else {
+            account = nil
+        }
         guard let account else { return }
         accountsByProfile[profile.id] = SignedInAccount(account)
     }

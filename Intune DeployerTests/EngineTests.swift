@@ -247,6 +247,8 @@ struct PlanEngineTests {
         return RemoteObject(id: "obj-1", displayName: name, description: "x [gw:\(shortID)]", body: Data(body.utf8))
     }
 
+    private static let scriptProfileID = UUID()
+
     private func scriptInput(
         existing: [TenantCollection: [RemoteObject]] = [:],
         assignments: [String: AssignmentIntent] = [:],
@@ -257,6 +259,7 @@ struct PlanEngineTests {
         let settings = ScriptSettings(runAsAccount: .user, frequencyMinutes: 1440, retries: 3, hideNotifications: true)
         let item = makeItem("scripts/greeting.sh", type: .shellScript, scriptSettings: settings)
         let profile = TenantProfile(
+            id: Self.scriptProfileID,
             displayName: "Test",
             clientID: "e445f0a6-0000-0000-0000-000000000000",
             tenantID: "t",
@@ -292,7 +295,8 @@ struct PlanEngineTests {
             item: item,
             fileData: Data(Fixtures.scriptWithOptionsDirective.utf8),
             namingPrefix: "[CONTOSO]",
-            variables: ["OrgName": "Contoso"]
+            variables: ["OrgName": "Contoso"],
+            profileID: Self.scriptProfileID
         )
         let remote = RemoteObject(
             id: "obj-1",
