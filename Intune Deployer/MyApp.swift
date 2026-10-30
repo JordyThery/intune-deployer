@@ -13,7 +13,7 @@ struct IntuneDeployerApp: App {
         repository: "intune-deployer",
         appName: "Intune Deployer"
     ))
-    @State private var tour = IntuneDeployerTour.makeState()
+    @State private var tour = AppDemo.tour()
 
     init() {
         let auth = AuthManager(demo: AppDemo.mode)
@@ -39,7 +39,7 @@ struct IntuneDeployerApp: App {
                 .environment(AppDemo.mode)
                 .frame(minWidth: 900, minHeight: 560)
                 .task {
-                    guard !AppDemo.isSandboxLaunch else { return }
+                    guard !AppDemo.isSandboxed else { return }
                     await updates.checkAutomatically()
                 }
         }

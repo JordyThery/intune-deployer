@@ -20,7 +20,7 @@ struct DemoModeTests {
     }
 
     private func demoMode(scenario: String? = nil) -> DemoMode {
-        let defaults = UserDefaults(suiteName: "intune-deployer-demo-\(UUID().uuidString)")!
+        let defaults = TestSettings.makeDefaults("demo").defaults
         var arguments = ["app"]
         if let scenario { arguments += [DemoMode.scenarioArgument, scenario] }
         let demo = DemoMode(key: "demoMode", defaults: defaults, arguments: arguments)
@@ -28,8 +28,9 @@ struct DemoModeTests {
         return demo
     }
 
-    private func auth(_ demo: DemoMode?, trap: MSALTrap) -> AuthManager {
-        AuthManager(demo: demo, makeSignIn: { try trap.make($0) })
+    private func auth(_ demo: DemoMode?, trap: MSALTrap, underTest: UnderTestSignIn? = nil) -> AuthManager {
+        guard let underTest else { return AuthManager(demo: demo, makeSignIn: { try trap.make($0) }) }
+        return AuthManager(demo: demo, makeSignIn: { try trap.make($0) }, underTest: underTest)
     }
 
     /// The live lifecycle test's ten fixture items, scanned from a temporary source.
@@ -216,18 +217,23 @@ struct DemoModeTests {
         }
         #expect(trap.calls == 0)
 
-        // the trap is the real way in: a real tenant reaches it
+        // the trap is the real way in: outside tests a real tenant reaches it
         let real = TenantProfile(displayName: "Lab", clientID: UUID().uuidString, tenantID: UUID().uuidString)
-        withDemo.restoreAccount(for: real)
+        auth(demo, trap: trap, underTest: .off).restoreAccount(for: real)
         #expect(trap.calls == 1)
     }
 
-    @Test("A real tenant's client uses the real network, the demo tenant's never does")
+    @Test("A real tenant's client uses its own network (under tests one that refuses everything), the demo tenant's never does")
     func networks() {
         let demo = demoMode()
         let session = TenantSession(auth: auth(demo, trap: MSALTrap()), activityLog: ActivityLog(), demo: demo)
         let real = TenantProfile(displayName: "Lab", clientID: UUID().uuidString, tenantID: UUID().uuidString)
-        #expect(session.client(for: real).recorder.session === URLSession.shared)
+        let realSession = session.client(for: real).recorder.session
+        #expect(realSession !== URLSession.shared, "under tests never the real network")
+        #expect(realSession !== demo.microsoftSignIn().session)
+        let given = URLSession(configuration: .ephemeral)
+        let live = TenantSession(auth: auth(demo, trap: MSALTrap()), activityLog: ActivityLog(), demo: demo, realTenantSession: given)
+        #expect(live.client(for: real).recorder.session === given)
         #expect(session.client(for: .demo).recorder.session === demo.microsoftSignIn().session)
         let withoutDemo = TenantSession(auth: auth(nil, trap: MSALTrap()), activityLog: ActivityLog())
         #expect(withoutDemo.client(for: .demo).recorder.session !== URLSession.shared)
@@ -239,7 +245,7 @@ struct DemoModeTests {
         let folder = FileManager.default.temporaryDirectory.appending(path: "demo-tenants-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appending(path: "tenants.json")
-        let defaults = try #require(UserDefaults(suiteName: "demo-tenants-\(UUID().uuidString)"))
+        let defaults = TestSettings.makeDefaults("demo-tenants").defaults
         let store = TenantStore(storageURL: url, defaults: defaults, demo: demo)
         return (store, url, defaults)
     }

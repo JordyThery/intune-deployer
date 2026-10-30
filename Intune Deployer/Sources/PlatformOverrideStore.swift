@@ -24,8 +24,8 @@ final class PlatformOverrideStore {
     private let storageURL: URL
 
     init(storageURL: URL? = nil) {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Intune Deployer", isDirectory: true)
+        // Application Support/Intune Deployer; under the unit tests a temporary folder.
+        let base = UnderTest.dataFolder
         self.storageURL = storageURL ?? base.appendingPathComponent("platform-overrides.json")
         load()
     }

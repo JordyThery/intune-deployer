@@ -25,6 +25,8 @@ final class SourceStore {
     let platformOverrides: PlatformOverrideStore
 
     private let storageURL: URL
+    /// Where the sources are saved (`sources.json`).
+    var fileLocation: URL { storageURL }
     private let cacheRoot: URL
     /// GitHub requests go through JTKit's request recorder into the activity log.
     private let gitHub: RequestRecorder
@@ -37,11 +39,15 @@ final class SourceStore {
     ///   - folder: where sources, the GitHub cache, edits and platform
     ///     choices are kept; Application Support/Intune Deployer by default
     ///     (a sandbox run uses demo mode's temporary folder).
-    ///   - gitHubSession: sends the GitHub requests (a sandbox run's reaches nothing).
+    ///   - gitHubSession: sends the GitHub requests (a sandbox run's reaches
+    ///     nothing); by default the real network, under tests a session that
+    ///     refuses and records every request (`SavedTenantGuard`).
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
-         activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession = .shared) {
-        let base = folder ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Intune Deployer", isDirectory: true)
+         activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession? = nil) {
+        let gitHubSession = gitHubSession
+            ?? (UnderTest.isActive ? SavedTenantGuard.shared.refusingSession(kind: "GitHub") : .shared)
+        // Application Support/Intune Deployer; under the unit tests a temporary folder.
+        let base = folder ?? UnderTest.dataFolder
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
         self.edits = editStore ?? ItemEditStore(storageURL: folder?.appendingPathComponent("item-edits.json"))
