@@ -305,41 +305,87 @@ private func removeOutstanding(_ tenant: LiveTenant) async -> [String] {
     return problems
 }
 
-/// Empties Entra's recycle bin of the groups this run created and removed
-/// (JTKit refuses any other permanent delete). Each emptied group is noted
-/// in the run folder, so the cleanup doesn't look for it again.
-@MainActor
-private func purgeDeletedGroups(_ tenant: LiveTenant) async -> (purged: Int, problems: [String]) {
-    let noted = tenant.run.runFolder.appending(path: "purged-groups.txt")
-    var purgedIDs = Set(((try? String(contentsOf: noted, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init))
+/// What emptying Entra's recycle bin did: groups confirmed gone by JTKit's
+/// read-back, groups Entra still shows after two minutes (a note, never a
+/// failure: decided by Jordy, 2026-10-30), and real problems.
+private struct PurgeResult {
     var purged = 0
+    var stillInRecycleBin: [String] = []
     var problems: [String] = []
-    let groups = tenant.run.ledger.items.filter {
-        $0.target == tenant.target && $0.resource == "groups" && !$0.fromSweep && $0.removed && !purgedIDs.contains($0.id.lowercased())
+
+    var note: String {
+        (["\(purged) emptied from Entra's recycle bin"]
+            + stillInRecycleBin.map { "still in Entra's recycle bin after two minutes: “\($0)”" }
+            + problems).joined(separator: "; ")
     }
+}
+
+/// Permanently deletes one deleted group and reads it back through JTKit
+/// (up to two minutes). A deleted group can take a moment to appear in the
+/// recycle bin, so a 404 to the delete is tried again for 30 seconds.
+@MainActor
+private func purge(_ id: String, name: String, tenant: LiveTenant, into result: inout PurgeResult) async {
+    var sent = false
+    for _ in 0..<10 where !sent {
+        do {
+            try await tenant.api.delete("directory/deletedItems/\(id)", version: .v1)
+            sent = true
+        } catch where status(of: error) == 404 {
+            try? await Task.sleep(for: .seconds(3))
+        } catch {
+            result.problems.append("group “\(name)”: \(failure(error))")
+            return
+        }
+    }
+    guard sent else {
+        result.problems.append("group “\(name)”: not found in Entra's recycle bin after 30 seconds")
+        return
+    }
+    // The delete's answer doesn't count: JTKit's read-back decides.
+    let readBack = tenant.run.network.deletes.last { $0.resource == "deleteditems" && $0.id.lowercased() == id.lowercased() }
+    if readBack?.confirmed == true {
+        result.purged += 1
+    } else {
+        result.stillInRecycleBin.append(name)
+    }
+}
+
+/// Empties Entra's recycle bin of the groups this run created and removed.
+@MainActor
+private func purgeDeletedGroups(_ tenant: LiveTenant) async -> PurgeResult {
+    var result = PurgeResult()
+    let groups = tenant.run.ledger.items.filter { $0.target == tenant.target && $0.resource == "groups" && !$0.fromSweep && $0.removed }
     for group in groups {
-        var done = false, failed = false
-        // A deleted group can take a moment to appear in the recycle bin.
-        for _ in 0..<10 where !done && !failed {
-            do {
-                try await tenant.api.delete("directory/deletedItems/\(group.id)", version: .v1)
-                done = true
-            } catch where status(of: error) == 404 {
-                try? await Task.sleep(for: .seconds(3))
-            } catch {
-                problems.append("group “\(group.name)”: \(failure(error))")
-                failed = true
-            }
-        }
-        if done {
-            purged += 1
-            purgedIDs.insert(group.id.lowercased())
-            try? Data(purgedIDs.sorted().joined(separator: "\n").utf8).write(to: noted, options: .atomic)
-        } else if !failed {
-            problems.append("group “\(group.name)”: not found in Entra's recycle bin after 30 seconds")
-        }
+        await purge(group.id, name: group.name, tenant: tenant, into: &result)
     }
-    return (purged, problems)
+    return result
+}
+
+/// The sweep: earlier runs' JTKTEST groups still in Entra's recycle bin,
+/// only those whose name starts with JTKTEST (decided by Jordy, 2026-10-30).
+@MainActor
+private func purgeEarlierTestGroups(_ tenant: LiveTenant, skipping done: Set<String>) async -> PurgeResult {
+    var result = PurgeResult()
+    let deleted: [Data]
+    do {
+        deleted = try await tenant.api.listRaw("directory/deletedItems/microsoft.graph.group?$select=id,displayName", version: .v1)
+    } catch {
+        result.problems.append("listing Entra's recycle bin: \(failure(error))")
+        return result
+    }
+    for body in deleted {
+        let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        guard let id = object["id"] as? String, !done.contains(id.lowercased()),
+              let name = object["displayName"] as? String, name.hasPrefix(LiveCheckRun.testPrefix + " ") else { continue }
+        do {
+            try tenant.run.adoptDeletedGroupForPurge(role: Role.intune, id: id, name: name)
+        } catch {
+            result.problems.append("group “\(name)”: \(error)")
+            continue
+        }
+        await purge(id, name: name, tenant: tenant, into: &result)
+    }
+    return result
 }
 
 // MARK: - The test host's Keychain item names
@@ -648,9 +694,12 @@ struct LiveLifecycleTests {
         try await attempt("remove the test group") {
             try await tenant.api.delete("groups/\(groupID)", version: .v1)
         }
+        // Emptying the recycle bin: Entra may still show it for a while (a note).
         let purge = await purgeDeletedGroups(tenant)
-        try require("the test group is removed and emptied from Entra's recycle bin", purge.problems.isEmpty && purge.purged == 1,
-                    note: purge.problems.joined(separator: "; "))
+        try require("the test group is removed; its permanent delete sent", purge.problems.isEmpty
+                        && purge.purged + purge.stillInRecycleBin.count == 1
+                        && !tenant.run.ledger.items.contains { $0.resource == "groups" && !$0.removed },
+                    note: purge.note)
 
         checkNoSavedTenantRequests(run, when: "after the lifecycle")
         #expect(tenant.runObjects().isEmpty)
@@ -761,8 +810,21 @@ struct LiveCleanupTests {
         defer { checkNoSavedTenantRequests(run, when: "end of the run") }
         let tenant = try LiveTenant(run)
         var problems = await removeOutstanding(tenant)
-        let purge = await purgeDeletedGroups(tenant)
-        problems += purge.problems
+        // This run's groups not purged yet, then earlier runs' JTKTEST groups
+        // still in Entra's recycle bin.
+        // Every test process's deletes are in the run's deletes.jsonl.
+        let alreadySent = Set(LiveCheckNetwork.deletes(in: run.runFolder.appending(path: LiveCheckRun.deletesFileName))
+            .filter { $0.resource == "deleteditems" }.map { $0.id.lowercased() })
+        let ownGroups = run.ledger.items.filter { $0.target == tenant.target && $0.resource == "groups" && !$0.fromSweep && $0.removed }
+        var recycleBin = PurgeResult()
+        for group in ownGroups where !alreadySent.contains(group.id.lowercased()) {
+            await purge(group.id, name: group.name, tenant: tenant, into: &recycleBin)
+        }
+        let earlier = await purgeEarlierTestGroups(tenant, skipping: alreadySent.union(ownGroups.map { $0.id.lowercased() }))
+        recycleBin.purged += earlier.purged
+        recycleBin.stillInRecycleBin += earlier.stillInRecycleBin
+        recycleBin.problems += earlier.problems
+        problems += recycleBin.problems
 
         // Once, on the first run: old [AUTOTEST] objects, by name and identity tag.
         var legacy = 0
@@ -788,7 +850,7 @@ struct LiveCleanupTests {
 
         let left = run.ledger.outstanding.filter { $0.target == tenant.target }
         run.record(step: "cleanup", passed: problems.isEmpty && left.isEmpty,
-                   note: (["\(purge.purged) test groups emptied from the recycle bin", "\(legacy) old [AUTOTEST] objects found"]
+                   note: ([recycleBin.note, "\(legacy) old [AUTOTEST] objects found"]
                           + problems + left.map { "left: \($0.resource) “\($0.name)”" }).joined(separator: "; "))
         #expect(problems.isEmpty, "\(problems)")
         #expect(left.isEmpty)
