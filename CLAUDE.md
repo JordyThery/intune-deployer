@@ -1,5 +1,7 @@
 # Intune Deployer: instructions for Claude
 
+At the start of every conversation, run ../JTKit/Scripts/check-versions.sh (or fetch it from GitHub if ../JTKit isn’t there) and mention the result in one line if anything is out of date.
+
 Shared code and the standards for every app: see JTKit's CLAUDE.md and ROADMAP.md (github.com/JordyThery/JTKit, or ../JTKit in the workspace).
 
 ## What the app is
@@ -66,16 +68,16 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 - Every token of a real tenant is checked before anything is sent with it (`TenantCheck`): its `tid` must be the profile's tenant ID; a profile with a verified domain is confirmed once before writes (`TenantSession.writeClient`: the token's `organization` lists the domain). Accounts are restored by saved identifier, or by exact home tenant for a tenant ID, never "the only account". Apply refuses a plan made for another profile or tenant ID, and does nothing while a Plan or Apply runs.
 - Plan reads the assignments of the matched objects (`…/assignments`; custom attribute scripts answer 400 there, so `?$expand=assignments`) and compares them with what Apply would send (`AssignmentBody`, `AssignmentEntry`); Apply sends only differing ones. Unreadable assignments are sent. A created app without committed content plans an upload again. Several groups with one name, and a tenant filter without a platform, are plan errors.
 - Apply order: filters → custom attributes → scripts → apps → custom configurations → Settings Catalog → compliance; assignments last.
-- Settings Catalog (`configurationPolicies`) is beta-only and uses `name`. Child settings need their parent group setting instance in the payload (macOS and iOS).
+- Settings Catalog (`configurationPolicies`) uses `name`. Child settings need their parent group setting instance in the payload (macOS and iOS).
 - Compliance: `scheduledActionsForRule` is required on create; updates go through `POST {id}/scheduleActionsForRules`. Read with `$expand=scheduledActionsForRule($expand=scheduledActionConfigurations)`. The service stores rule names as null (ignored in the diff).
-- Scripts and custom attributes are beta; content is base64. List answers omit `scriptContent`, so fetch tagged objects one by one. Intune normalises `executionFrequency` (PT1440M becomes P1D): emit the canonical form. Assign body key is `deviceManagementScriptAssignments`. Custom attribute name/type are immutable (stripped on PATCH, ignored in the diff) and often returned null.
+- Script and custom attribute content is base64. List answers omit `scriptContent`, so fetch tagged objects one by one. Intune normalises `executionFrequency` (PT1440M becomes P1D): emit the canonical form. Assign body key is `deviceManagementScriptAssignments`. Custom attribute name/type are immutable (stripped on PATCH, ignored in the diff) and often returned null.
 - Assignment filters don't apply to shell scripts, custom attributes or filters themselves; the plan strips them with a warning.
 - Groups: `displayName eq` filter needs no ConsistencyLevel; `mailNickname` max 64 restricted ASCII.
-- MDM authority via v1.0 `organization/{id}?$select=mobileDeviceManagementAuthority`; APNs certificate v1.0; ADE settings beta. Only 429 is documented with `Retry-After`.
+- MDM authority via v1.0 `organization/{id}?$select=mobileDeviceManagementAuthority`; APNs certificate v1.0. Only 429 is documented with `Retry-After`.
 - App upload: content version → file (`manifest: null`) → poll `azureStorageUriRequestSuccess` → 6 MiB blocks + block list (`renewUpload` when the SAS expires) → commit with encryption info → poll `commitFileSuccess` → PATCH `committedContentVersion` → wait for `publishingState == published` before `/assign`. Content is re-uploaded only when bundle version, build number, file name or (for `.ipa`) provisioning expiry changes. The commit body holds the encryption key: never recorded (JTKit).
 - Retries follow JTKit's rules. Updates, `/assign`, `scheduleActionsForRules` and deletes are safe to repeat; creates never are (a new Plan finds a created object by its tag).
 - MSAL: consent sheets must anchor to the key window (now handled in `JTKitMSAL`); scopes are asked step by step (read at sign-in, write at first Apply, `Group.ReadWrite.All` only when group creation is on).
-- Still unverified (marked `TODO(verify)` in code): Settings Catalog PUT with inline settings and its assign body, `configurationSettings` `$filter`/`$top`, exclusions alongside mixed Required/Available app intents, the `.ipa` upload (labelled "preview" in the README until a real signed `.ipa` deployment confirms it).
+- What this app waits for from Apple, Jamf or Microsoft, or must recheck: see WATCHLIST.md.
 
 ## Swift and testing gotchas
 
