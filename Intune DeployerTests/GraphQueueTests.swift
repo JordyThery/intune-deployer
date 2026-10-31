@@ -56,7 +56,7 @@ struct GraphQueueTests {
     @Test("A raw list answer without a list is an error")
     func rawListWithoutValue() async throws {
         let server = MockServer { _ in .json(200, #"{"id":"not a list"}"#) }
-        await #expect(throws: GraphError.self) {
+        await #expect(throws: Graph.APIError.self) {
             _ = try await graphClient(server).listRaw("things", version: .beta)
         }
     }
@@ -66,7 +66,7 @@ struct GraphQueueTests {
     @Test("A create is not sent again after a 503")
     func createNotRepeatedAfter503() async throws {
         let server = MockServer { _ in .json(503, "{}", headers: ["Retry-After": "0"]) }
-        await #expect(throws: GraphError.self) {
+        await #expect(throws: Graph.APIError.self) {
             _ = try await graphClient(server).post("things", version: .v1, body: Data("{}".utf8))
         }
         #expect(server.requests.map(\.method) == ["POST"])

@@ -15,7 +15,7 @@ import JTKit
 enum AppDemo {
     /// In the unit tests' host it starts as a sandbox run (off, never saved),
     /// so a saved `demoMode` can't switch it on and nothing writes it.
-    static let mode = UnderTest.isUnitTestHost
+    static let mode = TestRun.isUnitTestHost
         ? DemoMode(key: "demoMode", arguments: ProcessInfo.processInfo.arguments + [DemoMode.sandboxArgument, "YES"])
         : DemoMode(key: "demoMode")
 
@@ -23,7 +23,7 @@ enum AppDemo {
     /// (JTKit ROADMAP step 11): the real tenants, the tenant in use, sources,
     /// settings and the tour are never read or written, GitHub is blocked
     /// and there is no update check.
-    static var isSandboxed: Bool { isSandboxLaunch || UnderTest.isUnitTestHost }
+    static var isSandboxed: Bool { DemoMode.isSandboxLaunch || TestRun.isUnitTestHost }
 
     /// The saved tenants for this launch: when sandboxed an empty list in
     /// demo mode's temporary folder, so the real ones and the tenant in use
@@ -51,7 +51,7 @@ enum AppDemo {
     /// in the unit tests' host a file in its temporary folder, so it leaves
     /// no file in Preferences. One per launch, empty when it starts.
     static func sandboxedDefaults() -> UserDefaults {
-        guard UnderTest.isUnitTestHost else { return DemoMode.sandboxDefaults() }
+        guard TestRun.isUnitTestHost else { return DemoMode.sandboxDefaults() }
         return unitTestHostDefaults
     }
 
@@ -61,12 +61,4 @@ enum AppDemo {
         defaults.removePersistentDomain(forName: domain)
         return defaults
     }()
-
-    /// Started with `-JTKitSandbox YES`: no update check and no GitHub lookups.
-    nonisolated static var isSandboxLaunch: Bool {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard let index = arguments.lastIndex(of: DemoMode.sandboxArgument), arguments.indices.contains(index + 1)
-        else { return false }
-        return ["yes", "true", "1"].contains(arguments[index + 1].lowercased())
-    }
 }

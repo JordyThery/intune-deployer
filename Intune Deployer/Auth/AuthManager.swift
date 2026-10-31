@@ -80,13 +80,13 @@ enum UnderTestSignIn {
     case off
     /// Under tests: every saved tenant is refused before MSAL is reached,
     /// and the attempt written down.
-    case refuseAll(SavedTenantGuard)
+    case refuseAll(TestRun.AttemptLog)
     /// The release check's live checks: only the profile of exactly this
     /// Entra tenant ID, with its account matched strictly by tenant (no
     /// "only account" fallback) and tokens from MSAL's cache only. When MSAL
     /// needs its window the token fails (`interactionRequired`); a window is
     /// never opened. Every other tenant is refused as above.
-    case liveCheck(tenantID: String, guard: SavedTenantGuard)
+    case liveCheck(tenantID: String, guard: TestRun.AttemptLog)
 }
 
 /// The per-tenant sign-in state the screens show, on JTKit's Microsoft
@@ -125,7 +125,7 @@ final class AuthManager {
     ///   - underTest: under tests every saved tenant is refused by default.
     init(demo: DemoMode? = nil,
          makeSignIn: @escaping @MainActor (String) throws -> MicrosoftSignIn = { try MicrosoftSignIn(clientID: $0) },
-         underTest: UnderTestSignIn = UnderTest.isActive ? .refuseAll(.shared) : .off) {
+         underTest: UnderTestSignIn = TestRun.isActive ? .refuseAll(UnderTest.attempts) : .off) {
         self.demo = demo
         self.makeSignIn = makeSignIn
         self.underTest = underTest
@@ -133,7 +133,7 @@ final class AuthManager {
 
     /// Under tests: nil when this tenant may be reached (the live checks'
     /// tenant), else the guard that refuses it. Never for the demo tenant.
-    private func refusingGuard(for profile: TenantProfile) -> SavedTenantGuard? {
+    private func refusingGuard(for profile: TenantProfile) -> TestRun.AttemptLog? {
         switch underTest {
         case .off: nil
         case .refuseAll(let savedTenantGuard): savedTenantGuard
@@ -143,7 +143,7 @@ final class AuthManager {
     }
 
     /// The guard of this mode, nil when not under tests.
-    private var underTestGuard: SavedTenantGuard? {
+    private var underTestGuard: TestRun.AttemptLog? {
         switch underTest {
         case .off: nil
         case .refuseAll(let savedTenantGuard), .liveCheck(_, let savedTenantGuard): savedTenantGuard
@@ -223,7 +223,7 @@ final class AuthManager {
         // live checks' tenant.
         if case .off = underTest {} else {
             underTestGuard?.record("interactive sign-in")
-            throw UnderTestRefusal()
+            throw UnderTest.refused
         }
         let microsoft = try signIn(for: profile)
         signingInProfileIDs.insert(profile.id)
@@ -271,7 +271,7 @@ final class AuthManager {
         }
         if let refusing = refusingGuard(for: profile) {
             refusing.record("token for a saved tenant")
-            throw UnderTestRefusal()
+            throw UnderTest.refused
         }
         let microsoft = try signIn(for: profile)
         guard let identifier = accountsByProfile[profile.id]?.identifier,

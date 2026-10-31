@@ -42,7 +42,7 @@ private func writes(_ server: MockServer) -> [RecordedRequest] {
 
 @MainActor
 private func session(_ server: MockServer, tokenTenant: String?) -> TenantSession {
-    let savedTenantGuard = SavedTenantGuard(fileURL: FileManager.default.temporaryDirectory
+    let savedTenantGuard = TestRun.AttemptLog(fileURL: FileManager.default.temporaryDirectory
         .appending(path: "IntuneDeployerTests-guard-\(UUID().uuidString).jsonl"))
     return TenantSession(auth: AuthManager(underTest: .refuseAll(savedTenantGuard)), activityLog: ActivityLog(),
                          realTenantSession: server.session, tokenProvider: { _, _, _ in token(tid: tokenTenant) })

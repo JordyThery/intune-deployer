@@ -37,7 +37,7 @@ final class TenantSession {
     var generation = 0
 
     /// A real tenant's network: the real one; under tests one that refuses
-    /// and records every request (`SavedTenantGuard`), or the release
+    /// and records every request (`UnderTest.attempts`), or the release
     /// check's guarded network for its live checks.
     @ObservationIgnored private let realTenantSession: URLSession
 
@@ -62,7 +62,7 @@ final class TenantSession {
         self.activityLog = activityLog
         self.demo = demo
         self.realTenantSession = realTenantSession
-            ?? (UnderTest.isActive ? SavedTenantGuard.shared.refusingSession(kind: "Graph") : .shared)
+            ?? (TestRun.isActive ? UnderTest.refusingSession(kind: "Graph") : .shared)
         self.tokenProvider = tokenProvider
     }
 

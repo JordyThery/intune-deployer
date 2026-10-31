@@ -30,8 +30,6 @@ CLEANUP_TEST="Intune DeployerTests/LiveCleanupTests"
 HOST_KEYCHAIN_TEST="Intune DeployerTests/LiveHostKeychainTests"
 ROLES=(intune-test)
 CREDENTIALS=()
-# The old live tests' objects, swept once (by name and identity tag).
-LEGACY_PREFIXES="[AUTOTEST]"
 # all-devices-attempt: the app's Apply assigns to All devices (must be refused);
 # saved-tenant-attempt: the app asks for a saved tenant's token (must be refused).
 APP_FAULTS=(all-devices-attempt saved-tenant-attempt)

@@ -22,8 +22,8 @@ struct UnderTestTests {
         }
     }
 
-    private func privateGuard() -> SavedTenantGuard {
-        SavedTenantGuard(fileURL: FileManager.default.temporaryDirectory
+    private func privateGuard() -> TestRun.AttemptLog {
+        TestRun.AttemptLog(fileURL: FileManager.default.temporaryDirectory
             .appending(path: "IntuneDeployerTests-guard-\(UUID().uuidString).jsonl"))
     }
 
@@ -36,8 +36,8 @@ struct UnderTestTests {
 
     @Test("The unit tests' host runs under tests, with its files in a temporary folder, never Application Support")
     func theHostIsSandboxed() {
-        #expect(UnderTest.isUnitTestHost)
-        #expect(UnderTest.isActive)
+        #expect(TestRun.isUnitTestHost)
+        #expect(TestRun.isActive)
         #expect(AppDemo.isSandboxed)
         #expect(!AppDemo.mode.isOn, "a saved demoMode can't switch demo mode on in the host")
         #expect(UnderTest.dataFolder.path.hasPrefix(FileManager.default.temporaryDirectory.path))
@@ -136,10 +136,10 @@ struct UnderTestTests {
         let profile = realProfile()
         auth.restoreAccount(for: profile)
         #expect(!auth.isSignedIn(profile))
-        await #expect(throws: UnderTestRefusal.self) {
+        await #expect(throws: UnderTest.refused) {
             _ = try await auth.accessToken(profile: profile, scopes: GraphScopes.tenantRead)
         }
-        await #expect(throws: UnderTestRefusal.self) {
+        await #expect(throws: UnderTest.refused) {
             _ = try await auth.signIn(profile: profile)
         }
         // Not signed in (as every saved tenant under tests): a sign-out, e.g.
@@ -160,7 +160,7 @@ struct UnderTestTests {
 
         let other = realProfile()
         auth.restoreAccount(for: other)
-        await #expect(throws: UnderTestRefusal.self) {
+        await #expect(throws: UnderTest.refused) {
             _ = try await auth.accessToken(profile: other, scopes: GraphScopes.tenantRead)
         }
         #expect(trap.calls == 0)
@@ -172,21 +172,23 @@ struct UnderTestTests {
         #expect(trap.calls == 1)
         #expect(savedTenantGuard.attempts().count == 2)
         // … but never its window.
-        await #expect(throws: UnderTestRefusal.self) { _ = try await auth.signIn(profile: live) }
+        await #expect(throws: UnderTest.refused) { _ = try await auth.signIn(profile: live) }
     }
 
     @Test("A refusing network sends nothing and writes down method, host and path, never the query")
     func refusingNetwork() async throws {
         let savedTenantGuard = privateGuard()
-        let session = savedTenantGuard.refusingSession(kind: "Graph")
+        let session = UnderTest.refusingSession(kind: "Graph", log: savedTenantGuard)
         let url = try #require(URL(string: "https://graph.microsoft.com/v1.0/groups?$filter=displayName%20eq%20'Secret'"))
-        await #expect(throws: (any Error).self) { _ = try await session.data(from: url) }
+        await #expect { _ = try await session.data(from: url) } throws: { error in
+            (error as? URLError)?.code == .resourceUnavailable && error.localizedDescription == UnderTest.refusal
+        }
         #expect(savedTenantGuard.attempts().map(\.what) == ["Graph: GET graph.microsoft.com/v1.0/groups"])
 
         // A Graph client of a real tenant under tests reaches the same kind of network.
         let auth = AuthManager(makeSignIn: { _ in throw MicrosoftSignInError.noWindow }, underTest: .refuseAll(savedTenantGuard))
         let tenantSession = TenantSession(auth: auth, activityLog: ActivityLog(),
-                                          realTenantSession: savedTenantGuard.refusingSession(kind: "Graph"))
+                                          realTenantSession: UnderTest.refusingSession(kind: "Graph", log: savedTenantGuard))
         await #expect(throws: (any Error).self) {
             _ = try await tenantSession.client(for: realProfile()).getRaw("organization", version: .v1)
         }
@@ -198,7 +200,7 @@ struct UnderTestTests {
         let savedTenantGuard = privateGuard()
         let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-github-\(UUID().uuidString)")
         let store = SourceStore(activityLog: ActivityLog(), folder: folder,
-                                gitHubSession: savedTenantGuard.refusingSession(kind: "GitHub"))
+                                gitHubSession: UnderTest.refusingSession(kind: "GitHub", log: savedTenantGuard))
         store.addGitHubSource(GitHubSpec(owner: "example", repo: "baseline"))
         for _ in 0..<200 where savedTenantGuard.attempts().isEmpty {
             try await Task.sleep(for: .milliseconds(20))

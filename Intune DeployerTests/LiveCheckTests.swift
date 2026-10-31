@@ -12,7 +12,7 @@ import Testing
 // - Sign-in: the saved Microsoft sign-in of the one saved profile whose
 //   tenant ID is intune-test's, matched strictly; tokens from MSAL's cache
 //   only. When MSAL needs its window, the run stops and says so. Every other
-//   saved tenant gets no request at all (`UnderTest`, `SavedTenantGuard`).
+//   saved tenant gets no request at all (`UnderTest`, JTKit's `TestRun`).
 // - A small `JTKTEST` baseline (a filter, a shell script, a custom attribute,
 //   a Settings Catalog policy, a compliance policy; no app), applied with the
 //   app's own Plan and Apply, read back, a second Plan with nothing to do,
@@ -21,7 +21,7 @@ import Testing
 // - Assignments only to one empty `JTKTEST` group the run creates, 0 members
 //   checked before anything is assigned; never All devices, All users or an
 //   existing group (also refused by JTKit's guarded network, 0.12.5).
-// - Old `[AUTOTEST]` objects are swept once (legacy prefix, by identity tag).
+// - Old `[AUTOTEST]` objects were swept once; the sign-in step only counts them.
 // - No device actions of any kind.
 // The app's Plan and Apply run behind a fence that lets only the requests of
 // each step through; the test code reads back and removes through JTKit's
@@ -48,7 +48,7 @@ private let liveScopes = GraphScopes.applyScopes(allowGroupCreation: true)
 
 /// "MISSING PERMISSION" for 401/403, the error otherwise; no tenant name.
 private func failure(_ error: any Error) -> String {
-    if let graph = error as? GraphError, let status = graph.status, status == 401 || status == 403 {
+    if let graph = error as? Graph.APIError, let status = graph.status, status == 401 || status == 403 {
         return "MISSING PERMISSION (\(status)): \(graph.localizedDescription)"
     }
     if (error as? MicrosoftSignInError) == .interactionRequired {
@@ -58,13 +58,13 @@ private func failure(_ error: any Error) -> String {
 }
 
 private func status(of error: any Error) -> Int? {
-    (error as? GraphError)?.status
+    (error as? Graph.APIError)?.status
 }
 
 /// A read of a removed object: 404, or for Settings Catalog policies 400
 /// with the code "ResourceNotFound" (seen on 2026-10-30).
 private func isGone(_ error: any Error) -> Bool {
-    guard let graph = error as? GraphError else { return false }
+    guard let graph = error as? Graph.APIError else { return false }
     if graph.status == 404 { return true }
     if case .status(400, let body, _, _, _) = graph.kind { return body?.code == "ResourceNotFound" }
     return false
@@ -74,7 +74,7 @@ private func isGone(_ error: any Error) -> Bool {
 /// unit tests, the smoke tests and this run share the attempts file).
 @MainActor
 private func checkNoSavedTenantRequests(_ run: LiveCheckRun, when: String) {
-    let attempts = SavedTenantGuard.shared.attempts()
+    let attempts = UnderTest.attempts.attempts()
     run.record(step: "no request to a saved tenant or GitHub under tests (\(when))", passed: attempts.isEmpty,
                note: attempts.isEmpty ? nil : "\(attempts.count) refused: \(attempts.map(\.what).joined(separator: "; "))")
     #expect(attempts.isEmpty, "\(attempts.map(\.what))")
@@ -114,7 +114,7 @@ private struct LiveTenant {
         guard saved.hasValidClientID else { throw LiveFailure("\(Role.intune): the saved tenant has no valid client ID") }
         profile = TenantProfile(displayName: Role.intune, clientID: saved.clientID, tenantID: tenantID,
                                 namingPrefix: run.prefix, accountIdentifier: saved.accountIdentifier)
-        auth = AuthManager(underTest: .liveCheck(tenantID: tenantID, guard: .shared))
+        auth = AuthManager(underTest: .liveCheck(tenantID: tenantID, guard: UnderTest.attempts))
         auth.restoreAccount(for: profile)
         guard auth.isSignedIn(profile) else {
             throw LiveFailure("\(Role.intune): MSAL has no signed-in account of exactly this tenant: open Intune Deployer, choose that tenant and sign in once")
@@ -826,31 +826,9 @@ struct LiveCleanupTests {
         recycleBin.problems += earlier.problems
         problems += recycleBin.problems
 
-        // Once, on the first run: old [AUTOTEST] objects, by name and identity tag.
-        var legacy = 0
-        if !run.legacyPrefixes.isEmpty {
-            for collection in TenantCollection.allCases {
-                do {
-                    for body in try await tenant.api.listRaw(collection.listPath, version: collection.version) {
-                        let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-                        guard let id = object["id"] as? String else { continue }
-                        let name = object["displayName"] as? String ?? object["name"] as? String ?? ""
-                        guard run.isLegacyTestObject(name),
-                              ItemIdentity.shortID(inDescription: object["description"] as? String ?? "") != nil else { continue }
-                        try run.adoptForSweep(role: Role.intune, service: .intune,
-                                              resource: String(collection.listPath.split(separator: "/").last ?? ""), id: id, name: name)
-                        legacy += 1
-                    }
-                } catch {
-                    problems.append("sweep of \(collection.displayName): \(failure(error))")
-                }
-            }
-            problems += await removeOutstanding(tenant)
-        }
-
         let left = run.ledger.outstanding.filter { $0.target == tenant.target }
         run.record(step: "cleanup", passed: problems.isEmpty && left.isEmpty,
-                   note: ([recycleBin.note, "\(legacy) old [AUTOTEST] objects found"]
+                   note: ([recycleBin.note]
                           + problems + left.map { "left: \($0.resource) “\($0.name)”" }).joined(separator: "; "))
         #expect(problems.isEmpty, "\(problems)")
         #expect(left.isEmpty)

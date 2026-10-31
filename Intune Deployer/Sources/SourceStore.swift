@@ -41,11 +41,11 @@ final class SourceStore {
     ///     (a sandbox run uses demo mode's temporary folder).
     ///   - gitHubSession: sends the GitHub requests (a sandbox run's reaches
     ///     nothing); by default the real network, under tests a session that
-    ///     refuses and records every request (`SavedTenantGuard`).
+    ///     refuses and records every request (`UnderTest.attempts`).
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
          activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession? = nil) {
         let gitHubSession = gitHubSession
-            ?? (UnderTest.isActive ? SavedTenantGuard.shared.refusingSession(kind: "GitHub") : .shared)
+            ?? (TestRun.isActive ? UnderTest.refusingSession(kind: "GitHub") : .shared)
         // Application Support/Intune Deployer; under the unit tests a temporary folder.
         let base = folder ?? UnderTest.dataFolder
         self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
