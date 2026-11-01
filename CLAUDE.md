@@ -101,7 +101,7 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 1. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (both app configurations). Update the JTKit package version first if needed.
 2. Keep `THIRD-PARTY-NOTICES.md` in line with JTKit's MSAL version (a test checks it).
 3. Follow the release gate in JTKit/ROADMAP.md (release check, design review, code review, Jordy's check by hand).
-4. Commit, tag `vX.Y.Z`, create a draft GitHub release with short, professional notes.
+4. Commit, tag `vX.Y.Z`, create a draft GitHub release with short, professional notes. Release notes (CHANGELOG entries and GitHub release notes) are for the end user: professional and concise, saying what changed for them, and never mentioning the release check, reviews, tests, test targets, AI tools, JTKit step numbers or how a problem was found (decided by Jordy on 2026-11-01).
 5. Jordy archives, signs and notarizes. Verify (`codesign`, `spctl`, `stapler`), zip with `ditto -c -k --keepParent` as `Intune.Deployer.X.Y.Z.app.zip`, upload, publish.
 6. Every release needs the `.zip` asset: the in-app updater reads `releases/latest`. Re-download and check with `spctl` after publishing.
 7. Website: follow ../jordythery.be/CLAUDE.md, section “When an app is released”. Every release checks this app's card on apps.html, and its own page if it has one, against the released README and CHANGELOG, and changes them on a branch with a pull request. Jordy merges, which publishes the site.
