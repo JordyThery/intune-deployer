@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1 (2026-11-01)
+
+### Fixed
+- Objects deployed by version 1.5 or earlier are recognized again by Remove Baseline and the orphan list when the tenant profile has no naming prefix and is the only tenant profile for its tenant. The next Apply of each item adds the profile tag.
+
 ## 1.6.0 (2026-11-01)
 
 ### New

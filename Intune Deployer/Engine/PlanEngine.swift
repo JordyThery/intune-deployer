@@ -74,6 +74,10 @@ nonisolated struct PlanInput: Sendable {
     /// The files of each tagged app's committed content version, by object
     /// ID (lowercased); an app missing here couldn't be read and isn't checked.
     var committedFiles: [String: [CommittedFile]] = [:]
+    /// The profile is the only tenant profile for its tenant ID: without a
+    /// naming prefix it then claims tagged objects that have no profile tag
+    /// (`ItemIdentity.belongs`).
+    var isOnlyProfileForTenant = false
 }
 
 /// A file of an app's committed content version, as Graph returns it.
@@ -331,7 +335,8 @@ nonisolated enum PlanEngine {
             for object in objects {
                 if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id),
                    !failedItemIDs.contains(shortID),
-                   ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: input.profile) {
+                   ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: input.profile,
+                                        isOnlyProfileForTenant: input.isOnlyProfileForTenant) {
                     plan.orphans.append(OrphanedObject(
                         collection: collection,
                         objectID: object.id,

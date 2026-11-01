@@ -5,8 +5,11 @@ import SwiftUI
 /// counted.
 struct RemoveBaselineView: View {
     @Environment(TenantSession.self) private var session
+    @Environment(TenantStore.self) private var tenantStore
     @Environment(\.dismiss) private var dismiss
     let profile: TenantProfile
+
+    private var isOnlyProfileForTenant: Bool { tenantStore.isOnlyProfile(forTenantOf: profile) }
 
     @State private var typedName = ""
     @State private var started = false
@@ -32,8 +35,9 @@ struct RemoveBaselineView: View {
             } else {
                 Form {
                     Text("""
-                    This deletes the objects this tenant profile deployed (its profile tag, or \
-                    its naming prefix for older objects), the template filters it created and \
+                    This deletes the objects this tenant profile deployed (its profile tag; for \
+                    older objects, its naming prefix, or without a prefix when it’s the only \
+                    tenant profile for this tenant), the template filters it created and \
                     its empty groups. Other profiles’ objects and untagged objects are never \
                     touched. This can’t be undone.
                     """)
@@ -55,7 +59,10 @@ struct RemoveBaselineView: View {
                 if !started {
                     Button("Delete Tagged Objects", role: .destructive) {
                         started = true
-                        Task { await session.removeBaseline(profile: profile, counted: counted) }
+                        Task {
+                            await session.removeBaseline(profile: profile, counted: counted,
+                                                         isOnlyProfileForTenant: isOnlyProfileForTenant)
+                        }
                     }
                     .disabled(!RemoveBaselineConfirmation.canDelete(typedName: typedName, profileName: profile.displayName,
                                                                     isApplying: session.isApplying, objectCount: objectCount))
@@ -96,7 +103,7 @@ struct RemoveBaselineView: View {
         counted = nil
         countError = nil
         do {
-            counted = try await session.removalCount(profile: profile)
+            counted = try await session.removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
         } catch {
             countError = error.localizedDescription
         }

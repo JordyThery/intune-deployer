@@ -57,15 +57,17 @@ nonisolated enum ItemIdentity {
     }
 
     /// Whether a tagged object belongs to this profile: its profile tag is the
-    /// profile's; without one (deployed before profile tags) only when its
-    /// name carries the profile's naming prefix, which a profile without a
-    /// prefix never claims.
-    static func belongs(description: String?, displayName: String, to profile: TenantProfile) -> Bool {
+    /// profile's. Without one (deployed before profile tags, by 1.5 or
+    /// earlier): when its name carries the profile's naming prefix; a profile
+    /// without a prefix claims it only when it's the only tenant profile for
+    /// its tenant ID (`isOnlyProfileForTenant`), never guessing between two.
+    static func belongs(description: String?, displayName: String, to profile: TenantProfile,
+                        isOnlyProfileForTenant: Bool = false) -> Bool {
         if let marker = description.flatMap(profileMarker(inDescription:)) {
             return marker == profileMarker(for: profile.id)
         }
         let prefix = profile.namingPrefix.trimmingCharacters(in: .whitespaces)
-        guard !prefix.isEmpty else { return false }
+        guard !prefix.isEmpty else { return isOnlyProfileForTenant }
         return displayName == prefix || displayName.hasPrefix("\(prefix) ")
     }
 

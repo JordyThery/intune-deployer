@@ -141,6 +141,19 @@ final class TenantStore {
         }
     }
 
+    /// Whether no other saved profile has this profile's tenant ID (trimmed,
+    /// ignoring case). Only then does a profile without a naming prefix claim
+    /// objects deployed before profile tags. False for an empty tenant ID.
+    /// The demo tenant is the only one for its tenant.
+    func isOnlyProfile(forTenantOf profile: TenantProfile) -> Bool {
+        if profile.id == demoProfile.id { return true }
+        let tenantID = profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !tenantID.isEmpty else { return false }
+        return !profiles.contains {
+            $0.id != profile.id && $0.tenantID.trimmingCharacters(in: .whitespaces).lowercased() == tenantID
+        }
+    }
+
     /// "Import Tenant Profile…" in the + menu. `adopt` gets the profile and
     /// the identities of the sources it was exported with
     /// (`SourceStore.adopt`), so its items keep their IDs on this Mac.

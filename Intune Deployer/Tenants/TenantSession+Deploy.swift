@@ -9,7 +9,9 @@ extension TenantSession {
     // MARK: - Plan
 
     /// Builds a dry-run plan: fetch tenant state, then run the pure engine.
-    func plan(profile: TenantProfile, items: [InferredItem], sourceStore: SourceStore) async {
+    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`.
+    func plan(profile: TenantProfile, items: [InferredItem], sourceStore: SourceStore,
+              isOnlyProfileForTenant: Bool = false) async {
         guard !isApplying else {
             planError = "Apply is still running. Wait for it to finish."
             return
@@ -82,7 +84,8 @@ extension TenantSession {
                 groups: groups,
                 knownSettingDefinitionIDs: knownDefinitions,
                 existingAssignments: assignments,
-                committedFiles: committedFiles
+                committedFiles: committedFiles,
+                isOnlyProfileForTenant: isOnlyProfileForTenant
             )
             var plan = await Task.detached(priority: .userInitiated) {
                 PlanEngine.makePlan(input: input)
@@ -720,9 +723,11 @@ extension TenantSession {
 
     /// Whether Remove Baseline deletes this tenant object: one of this
     /// profile's tagged objects, or a template filter it created.
-    nonisolated private static func isRemovable(_ object: RemoteObject, in collection: TenantCollection, profile: TenantProfile) -> Bool {
+    nonisolated private static func isRemovable(_ object: RemoteObject, in collection: TenantCollection, profile: TenantProfile,
+                                                isOnlyProfileForTenant: Bool) -> Bool {
         if object.taggedShortID != nil {
-            return ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: profile)
+            return ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: profile,
+                                        isOnlyProfileForTenant: isOnlyProfileForTenant)
         }
         guard collection == .assignmentFilters, let description = object.description else { return false }
         return description.hasPrefix(templateFilterDescription)
@@ -788,12 +793,15 @@ extension TenantSession {
     }
 
     /// Counts what Remove Baseline would delete. Reads only.
-    func removalCount(profile: TenantProfile) async throws -> RemovalCount {
+    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`.
+    func removalCount(profile: TenantProfile, isOnlyProfileForTenant: Bool = false) async throws -> RemovalCount {
         let client = try await checkedClient(for: profile, scopes: GraphScopes.planRead)
         var counted = RemovalCount()
         for collection in TenantCollection.allCases {
             for body in try await client.listRaw(collection.listPath, version: collection.version) {
-                guard let object = Self.remoteObject(from: body), Self.isRemovable(object, in: collection, profile: profile) else { continue }
+                guard let object = Self.remoteObject(from: body),
+                      Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
+                else { continue }
                 counted.objectIDs.insert(object.id.lowercased())
             }
         }
@@ -804,8 +812,8 @@ extension TenantSession {
     }
 
     /// How many objects Remove Baseline would delete.
-    func taggedObjectCount(profile: TenantProfile) async throws -> Int {
-        try await removalCount(profile: profile).count
+    func taggedObjectCount(profile: TenantProfile, isOnlyProfileForTenant: Bool = false) async throws -> Int {
+        try await removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant).count
     }
 
     /// Deletes this profile's tagged objects, the template filters it
@@ -817,7 +825,7 @@ extension TenantSession {
     /// tenant name first. Refused while a Plan or Apply runs; every write is
     /// tenant-checked.
     @discardableResult
-    func removeBaseline(profile: TenantProfile, counted: RemovalCount? = nil) async -> Bool {
+    func removeBaseline(profile: TenantProfile, counted: RemovalCount? = nil, isOnlyProfileForTenant: Bool = false) async -> Bool {
         guard !isApplying, !isPlanning else { return false }
         isApplying = true
         applyResults = []
@@ -843,7 +851,9 @@ extension TenantSession {
             do {
                 let objects = try await client.listRaw(collection.listPath, version: collection.version)
                 for body in objects {
-                    guard let object = Self.remoteObject(from: body), Self.isRemovable(object, in: collection, profile: profile) else { continue }
+                    guard let object = Self.remoteObject(from: body),
+                          Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
+                    else { continue }
                     if let counted, !counted.objectIDs.contains(object.id.lowercased()) {
                         report("Keep \(object.displayName)", .skipped(notCounted))
                         continue

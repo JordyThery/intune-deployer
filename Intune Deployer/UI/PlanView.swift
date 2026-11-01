@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct PlanView: View {
     @Environment(TenantSession.self) private var session
     @Environment(SourceStore.self) private var sourceStore
+    @Environment(TenantStore.self) private var tenantStore
     @Environment(\.dismiss) private var dismiss
 
     let profile: TenantProfile
@@ -41,7 +42,8 @@ struct PlanView: View {
         }
         .task {
             if session.currentPlan == nil && !session.isPlanning {
-                await session.plan(profile: profile, items: items, sourceStore: sourceStore)
+                await session.plan(profile: profile, items: items, sourceStore: sourceStore,
+                                   isOnlyProfileForTenant: tenantStore.isOnlyProfile(forTenantOf: profile))
             }
         }
     }

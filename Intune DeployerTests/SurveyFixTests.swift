@@ -443,3 +443,96 @@ struct MoreSurveyFixTests {
         #expect(plan.errors.contains { $0.message.contains("has no platform") })
     }
 }
+
+// MARK: - 1.6.1: objects deployed by 1.5 or earlier, profile without prefix
+
+@Suite("Objects without a profile tag belong to the only prefix-less profile of their tenant")
+struct LegacyObjectOwnershipTests {
+    private let profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA, namingPrefix: "")
+    private let legacy = "Managed by Intune Deployer [IntuneDeployer:0123abcd]"
+
+    @Test func onlyEmptyPrefixProfileClaimsLegacyObjects() {
+        #expect(ItemIdentity.belongs(description: legacy, displayName: "Script", to: profile, isOnlyProfileForTenant: true))
+        #expect(!ItemIdentity.belongs(description: legacy, displayName: "Script", to: profile, isOnlyProfileForTenant: false),
+                "a second profile on the same tenant ID: never guess")
+    }
+
+    @Test func aPrefixStillDecides() {
+        var prefixed = profile
+        prefixed.namingPrefix = "[LAB]"
+        #expect(ItemIdentity.belongs(description: legacy, displayName: "[LAB] Script", to: prefixed, isOnlyProfileForTenant: true))
+        #expect(!ItemIdentity.belongs(description: legacy, displayName: "Script", to: prefixed, isOnlyProfileForTenant: true))
+        #expect(ItemIdentity.belongs(description: legacy, displayName: "[LAB] Script", to: prefixed, isOnlyProfileForTenant: false))
+    }
+
+    @Test func anotherProfilesTagNeverBelongs() {
+        let theirs = "\(legacy) \(ItemIdentity.profileTag(for: UUID()))"
+        #expect(!ItemIdentity.belongs(description: theirs, displayName: "Script", to: profile, isOnlyProfileForTenant: true))
+        let mine = "\(legacy) \(ItemIdentity.profileTag(for: profile.id))"
+        #expect(ItemIdentity.belongs(description: mine, displayName: "Script", to: profile, isOnlyProfileForTenant: false))
+    }
+
+    @MainActor
+    @Test func onlyProfileForTenant() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-only-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = TenantStore(storageURL: folder.appending(path: "tenants.json"), defaults: TestSettings.makeDefaults("only").defaults)
+        let alone = TenantProfile(displayName: "Alone", clientID: "c", tenantID: tenantB, namingPrefix: "")
+        let first = TenantProfile(displayName: "First", clientID: "c", tenantID: tenantA, namingPrefix: "")
+        let second = TenantProfile(displayName: "Second", clientID: "c", tenantID: " \(tenantA.uppercased()) ", namingPrefix: "")
+        let blank = TenantProfile(displayName: "Blank", clientID: "c", tenantID: "", namingPrefix: "")
+        for profile in [alone, first, second, blank] { try store.connections.save(profile) }
+        #expect(store.isOnlyProfile(forTenantOf: alone))
+        #expect(!store.isOnlyProfile(forTenantOf: first))
+        #expect(!store.isOnlyProfile(forTenantOf: second))
+        #expect(!store.isOnlyProfile(forTenantOf: blank))
+        #expect(store.isOnlyProfile(forTenantOf: .demo))
+    }
+
+    @Test("Legacy objects are orphans of the only prefix-less profile, and get the profile tag on update")
+    func orphansAndRetag() throws {
+        let item = makeItem("scripts/hello.sh", type: .shellScript)
+        func plan(only: Bool) -> Plan {
+            var profile = profile
+            profile.selectedItemIDs = [item.id]
+            return PlanEngine.makePlan(input: PlanInput(
+                selectedItems: [.init(item: item, fileData: Data(Fixtures.plainScript.utf8))],
+                profile: profile,
+                existingObjects: [.shellScripts: [
+                    RemoteObject(id: "kept", displayName: "hello", description: ItemIdentity.tag(forShortID: item.id), body: Data("{}".utf8)),
+                    RemoteObject(id: "gone", displayName: "Old", description: legacy, body: Data("{}".utf8)),
+                    RemoteObject(id: "theirs", displayName: "Theirs",
+                                 description: "[IntuneDeployer:0123abce] \(ItemIdentity.profileTag(for: UUID()))", body: Data("{}".utf8)),
+                ]],
+                groups: [:], knownSettingDefinitionIDs: nil, isOnlyProfileForTenant: only))
+        }
+        #expect(plan(only: true).orphans.map(\.objectID) == ["gone"])
+        #expect(plan(only: false).orphans.isEmpty)
+        let action = try #require(plan(only: true).actions.first { $0.existingObjectID == "kept" })
+        let body = try #require(try JSONSerialization.jsonObject(with: action.payload) as? [String: Any])
+        #expect(ItemIdentity.profileMarker(inDescription: body["description"] as? String ?? "") == ItemIdentity.profileMarker(for: profile.id))
+    }
+
+    @MainActor
+    @Test("Remove Baseline counts and deletes legacy objects only for the only prefix-less profile")
+    func removeBaselineCountsLegacyObjects() async throws {
+        let server = MockServer { request in
+            guard request.method == "GET" else { return .json(204, "") }
+            if request.path == "/beta/deviceManagement/deviceShellScripts" {
+                return list([["id": "s-legacy", "displayName": "A", "description": legacy],
+                             ["id": "s-mine", "displayName": "B", "description": "[IntuneDeployer:0123abce] \(ItemIdentity.profileTag(for: profile.id))"],
+                             ["id": "s-theirs", "displayName": "C", "description": "[IntuneDeployer:0123abcf] \(ItemIdentity.profileTag(for: UUID()))"],
+                             ["id": "s-untagged", "displayName": "D", "description": "made by hand"]])
+            }
+            return list([])
+        }
+        let session = session(server, tokenTenant: tenantA)
+        #expect(try await session.removalCount(profile: profile, isOnlyProfileForTenant: false).objectIDs == ["s-mine"])
+        let counted = try await session.removalCount(profile: profile, isOnlyProfileForTenant: true)
+        #expect(counted.objectIDs == ["s-legacy", "s-mine"])
+        await session.removeBaseline(profile: profile, counted: counted, isOnlyProfileForTenant: true)
+        #expect(Set(writes(server).map(\.path)) == ["/beta/deviceManagement/deviceShellScripts/s-legacy",
+                                                    "/beta/deviceManagement/deviceShellScripts/s-mine"])
+        #expect(writes(server).allSatisfy { $0.method == "DELETE" })
+    }
+}
