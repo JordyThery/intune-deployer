@@ -324,6 +324,10 @@ and release tag are shown with every item.
 
 If Intune Deployer saves you time, you can [buy me a coffee](https://buymeacoffee.com/jordythery). ☕️
 
+## Disclaimer
+
+This tool is provided as-is, without warranty of any kind. Use it at your own risk. This is a personal project. It is not affiliated with or endorsed by my employer, Apple or Microsoft. Issues and pull requests are appreciated. Support is best-effort.
+
 ## License
 
 [MIT](LICENSE) — © 2026 Jordy Thery.
