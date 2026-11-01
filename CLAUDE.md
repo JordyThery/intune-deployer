@@ -104,4 +104,4 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 4. Commit, tag `vX.Y.Z`, create a draft GitHub release with short, professional notes.
 5. Jordy archives, signs and notarizes. Verify (`codesign`, `spctl`, `stapler`), zip with `ditto -c -k --keepParent` as `Intune.Deployer.X.Y.Z.app.zip`, upload, publish.
 6. Every release needs the `.zip` asset: the in-app updater reads `releases/latest`. Re-download and check with `spctl` after publishing.
-7. Website: only when the app has its own page on jordythery.be and the release changes the app enough to make that page untrue or incomplete, update the page.
+7. Website: follow ../jordythery.be/CLAUDE.md, section “When an app is released”. Every release checks this app's card on apps.html, and its own page if it has one, against the released README and CHANGELOG, and changes them on a branch with a pull request. Jordy merges, which publishes the site.
