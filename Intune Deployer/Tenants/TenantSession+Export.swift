@@ -31,7 +31,12 @@ extension TenantSession {
         isExporting = true
         defer { isExporting = false }
 
-        let client = client(for: profile)
+        let client: Graph.Client
+        do {
+            client = try await checkedClient(for: profile, scopes: GraphScopes.tenantRead)
+        } catch {
+            return ExportSummary(folder: folder, written: [], skipped: [.init(name: "Tenant check", reason: error.localizedDescription)])
+        }
         let (bodies, fetchFailures) = await Self.fetchFullBodies(selection, client: client)
         let outcomes = bodies.map { TenantExporter.export(collection: $0.collection, body: $0.body, namingPrefix: profile.namingPrefix) }
 

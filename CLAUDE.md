@@ -26,7 +26,7 @@ Shared code and the standards for every app: see JTKit's CLAUDE.md and ROADMAP.m
 - **Audience-neutral wording** in UI text, tooltips, code comments and README: no "customer", "MSP" or "partner". Say "tenant", "the target tenant" or "organization".
 - **Copyright** is exactly "© 2026 Jordy Thery" (JTKit's About writes the line).
 - **The app does not link to community baselines** (intune-my-macs, OpenIntuneBaseline). The README may mention them as places to get files.
-- **Item edits:** an edit overrides a file's content inside the app only. Never write it back to the file or push it to GitHub. The editor shows JSON pretty-printed but otherwise as-is: don't strip or transform content.
+- **Item edits:** an edit overrides a file's content inside the app only. Never write it back to the file or push it to GitHub. The editor shows content as-is: one-line JSON is indented (keys and values unchanged); binary profiles and non-UTF-8 files aren't edited. Don't strip or transform content.
 - **Tenant export** lives only in the tenant view, never in the Plan view. App packages are skipped (Graph can't download content).
 - Deferred on purpose, not new ideas: taking over untagged objects ("adopt"), drift check, plan export.
 - Rejected: CI pipelines (Jordy runs tests locally and releases by hand), a README demo GIF, streaming uploads for very large installers.
@@ -49,6 +49,8 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 
 - Tenant profiles: `tenants.json` in Application Support/Intune Deployer, through JTKit's `ConnectionStore`; selection in UserDefaults `selectedTenantProfileID`. Settings › Connections changes only name, tenant ID and client ID; the main window saves only the baseline part.
 - Item edits, platform overrides and the GitHub cache (`GitHubSources/<sourceID>/`) in Application Support/Intune Deployer.
+- `source-identities.json`: every identity a source key had (GitHub owner/repo/subfolder, or the folder's name); reused when a source is added again; exported with a tenant profile as `sourceIdentities`.
+- `sources.json`, `item-edits.json`, `platform-overrides.json` and `source-identities.json` go through `SavedList` (JTKit's `JSONFileConnectionStorage`): an unreadable file is copied aside as `<file>.unreadable-<date>` and never saved over.
 - GitHub token: Keychain service `be.jordythery.intune-deployer.github`, account `personal-access-token`, "when unlocked"; trimmed, empty deletes.
 - The app's own Keychain group must stay listed before MSAL's in the entitlements (a test checks the signed app), so a new data-protection Keychain item that names no group never lands in MSAL's shared group. MSAL names its own group, so its sign-in cache is found either way. The GitHub token is in the login Keychain, where these groups don't apply.
 - UserDefaults `enableItemEditing` (off by default), `hasSeenGuidedTour`, `demoMode`.
@@ -62,7 +64,7 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 - Before a demo Plan the demo catalog learns the setting IDs the selected Settings Catalog items use, so a typo in a setting ID isn't caught in demo mode. A tagged left-over ("Contoso – Legacy Wi-Fi") makes the first Plan show a deletion.
 - `-JTKitDemoScenario missingPermission`: every write gets Graph's real 403. `-JTKitSandbox YES`: tenants and sources in demo mode's temporary folder, no update check, GitHub blocked.
 
-## Graph behaviour learned the hard way
+## Graph behavior learned the hard way
 
 - Identity tag `[IntuneDeployer:<8 hex>]` in the description, then the profile tag `[IntuneDeployerProfile:<8 hex>]` (SHA-256 of the profile ID; since 2026-10-30, a separate tag so older builds still read the item tag); an empty description becomes "Managed by Intune Deployer [tags]". Legacy `[gw:…]` is still matched on read, never written. Matching is tag + `@odata.type` (any profile): a platform change means create + orphan. Orphans and Remove Baseline cover only the profile's objects: its profile tag, or (deployed before profile tags) a name with its non-empty naming prefix. Created groups and template filters carry "Created by Intune Deployer…" and the profile tag; Remove Baseline deletes those filters and the groups the profile's intents name if they have no members.
 - Every token of a real tenant is checked before anything is sent with it (`TenantCheck`): its `tid` must be the profile's tenant ID; a profile with a verified domain is confirmed once before writes (`TenantSession.writeClient`: the token's `organization` lists the domain). Accounts are restored by saved identifier, or by exact home tenant for a tenant ID, never "the only account". Apply refuses a plan made for another profile or tenant ID, and does nothing while a Plan or Apply runs.
@@ -70,7 +72,7 @@ Stays in the app: the plan and apply engine, diffing, identity tags, payloads, a
 - Apply order: filters → custom attributes → scripts → apps → custom configurations → Settings Catalog → compliance; assignments last.
 - Settings Catalog (`configurationPolicies`) uses `name`. Child settings need their parent group setting instance in the payload (macOS and iOS).
 - Compliance: `scheduledActionsForRule` is required on create; updates go through `POST {id}/scheduleActionsForRules`. Read with `$expand=scheduledActionsForRule($expand=scheduledActionConfigurations)`. The service stores rule names as null (ignored in the diff).
-- Script and custom attribute content is base64. List answers omit `scriptContent`, so fetch tagged objects one by one. Intune normalises `executionFrequency` (PT1440M becomes P1D): emit the canonical form. Assign body key is `deviceManagementScriptAssignments`. Custom attribute name/type are immutable (stripped on PATCH, ignored in the diff) and often returned null.
+- Script and custom attribute content is base64. List answers omit `scriptContent`, so fetch tagged objects one by one. Intune normalizes `executionFrequency` (PT1440M becomes P1D): emit the canonical form. Assign body key is `deviceManagementScriptAssignments`. Custom attribute name/type are immutable (stripped on PATCH, ignored in the diff) and often returned null.
 - Assignment filters don't apply to shell scripts, custom attributes or filters themselves; the plan strips them with a warning.
 - Groups: `displayName eq` filter needs no ConsistencyLevel; `mailNickname` max 64 restricted ASCII.
 - MDM authority via v1.0 `organization/{id}?$select=mobileDeviceManagementAuthority`; APNs certificate v1.0. Only 429 is documented with `Retry-After`.

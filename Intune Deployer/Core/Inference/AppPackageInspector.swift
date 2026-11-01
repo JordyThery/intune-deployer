@@ -31,7 +31,7 @@ nonisolated enum AppInspectionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .toolFailed(let message): "Could not open the package: \(message)"
+        case .toolFailed(let message): "Couldn’t open the package: \(message)"
         case .noMetadata(let message): message
         }
     }
@@ -47,7 +47,7 @@ nonisolated enum AppInspectionError: LocalizedError {
 /// - .ipa: a zip; Payload/<App>.app/Info.plist provides the bundle metadata
 ///   and embedded.mobileprovision the provisioning expiry.
 ///
-/// Callers must pass a file INSIDE our sandbox container (copy it first) so
+/// Callers must pass a file inside the app's sandbox container (copy it first) so
 /// the spawned helper tools can read it.
 nonisolated enum AppPackageInspector {
     private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "AppInspector")
@@ -95,7 +95,7 @@ nonisolated enum AppPackageInspector {
                 return try parsePackageInfo(data)
             }
         }
-        throw AppInspectionError.noMetadata("The .pkg metadata could not be read")
+        throw AppInspectionError.noMetadata("The .pkg metadata couldn’t be read")
     }
 
     /// Product archive Distribution XML: `product id/version`, `pkg-ref`
@@ -182,7 +182,7 @@ nonisolated enum AppPackageInspector {
         guard let data = try? Data(contentsOf: infoPlistURL),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let bundleID = info["CFBundleIdentifier"] as? String else {
-            throw AppInspectionError.noMetadata("Could not read \(appBundle.lastPathComponent)'s Info.plist")
+            throw AppInspectionError.noMetadata("Couldn’t read \(appBundle.lastPathComponent)’s Info.plist")
         }
         let version = (info["CFBundleShortVersionString"] as? String)
             ?? (info["CFBundleVersion"] as? String)
@@ -218,7 +218,7 @@ nonisolated enum AppPackageInspector {
         guard let data = try? Data(contentsOf: appBundle.appending(path: "Info.plist")),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let bundleID = info["CFBundleIdentifier"] as? String else {
-            throw AppInspectionError.noMetadata("Could not read \(appBundle.lastPathComponent)'s Info.plist")
+            throw AppInspectionError.noMetadata("Couldn’t read \(appBundle.lastPathComponent)’s Info.plist")
         }
         let buildNumber = info["CFBundleVersion"] as? String
         let version = (info["CFBundleShortVersionString"] as? String) ?? buildNumber ?? "1.0"
@@ -271,18 +271,29 @@ nonisolated enum AppPackageInspector {
     // MARK: - Helpers
 
     /// Runs a helper tool with stderr merged into stdout, draining the pipe
-    /// before waiting so large output cannot deadlock the process.
+    /// before waiting so large output cannot deadlock the process. Nothing
+    /// can be typed into it (a disk image's license agreement would wait for
+    /// an answer), and it is stopped after `timeout` seconds.
     @discardableResult
-    private static func run(_ tool: String, _ arguments: [String]) throws -> String {
+    static func run(_ tool: String, _ arguments: [String], timeout: TimeInterval = 300) throws -> String {
         let process = Process()
         process.executableURL = URL(filePath: tool)
         process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let deadline = DispatchWorkItem { [process] in
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         process.waitUntilExit()
+        deadline.cancel()
+        if process.terminationReason == .uncaughtSignal {
+            throw AppInspectionError.toolFailed("\(URL(filePath: tool).lastPathComponent) didn’t finish within \(Int(timeout)) seconds")
+        }
         guard process.terminationStatus == 0 else {
             logger.error("\(tool, privacy: .public) failed: \(output, privacy: .public)")
             throw AppInspectionError.toolFailed(output.trimmingCharacters(in: .whitespacesAndNewlines))

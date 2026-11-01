@@ -111,7 +111,7 @@ nonisolated enum InferenceEngine {
         switch ext {
         case "json":
             guard let data = fileData() else {
-                return .skip(reason: "Could not read file")
+                return .skip(reason: "Couldn’t read the file.")
             }
             switch JSONInference.classify(data: data) {
             case .item(let detection):
@@ -129,7 +129,7 @@ nonisolated enum InferenceEngine {
 
         case "mobileconfig":
             guard let data = fileData() else {
-                return .skip(reason: "Could not read file")
+                return .skip(reason: "Couldn’t read the file.")
             }
             switch MobileConfigInference.classify(data: data) {
             case .item(let detection):
@@ -151,10 +151,13 @@ nonisolated enum InferenceEngine {
 
         case "sh", "zsh":
             guard let text = fileData().flatMap(decodeText) else {
-                return .skip(reason: "Could not read file as text")
+                return .skip(reason: "Couldn’t read the file as text.")
             }
             let directive = ScriptDirective.parse(scriptText: text)
             let tokens = TokenScanner.tokens(in: text)
+            // A misspelled key in the header is shown with the detection.
+            let ignored = directive.unknownKeys.isEmpty ? ""
+                : ". Ignored in the # intune: line: \(directive.unknownKeys.joined(separator: ", "))"
 
             // Decide script vs custom attribute:
             // 1. header directive, 2. folder name, 3. default shell script.
@@ -162,8 +165,10 @@ nonisolated enum InferenceEngine {
                 return makeItem(
                     type: .customAttribute,
                     displayName: baseName,
-                    reason: "Header directive: # intune: type=customAttribute",
+                    reason: "Header directive: # intune: type=customAttribute" + ignored,
                     tokens: tokens,
+                    // runAsAccount=user is kept: the attribute runs as the user.
+                    scriptSettings: directive.scriptSettings,
                     customAttributeType: directive.attributeType ?? .string
                 )
             }
@@ -171,17 +176,19 @@ nonisolated enum InferenceEngine {
                 return makeItem(
                     type: .customAttribute,
                     displayName: baseName,
-                    reason: "Folder name indicates a custom attribute",
+                    reason: "Folder name indicates a custom attribute" + ignored,
                     tokens: tokens,
+                    // runAsAccount=user is kept: the attribute runs as the user.
+                    scriptSettings: directive.scriptSettings,
                     customAttributeType: directive.attributeType ?? .string
                 )
             }
             return makeItem(
                 type: .shellScript,
                 displayName: baseName,
-                reason: directive.declaredType == .shellScript
+                reason: (directive.declaredType == .shellScript
                     ? "Header directive: # intune: type=shellScript"
-                    : "Shell script by default (no directive, no custom-attribute folder)",
+                    : "Shell script by default (no directive, no custom-attribute folder)") + ignored,
                 tokens: tokens,
                 scriptSettings: directive.scriptSettings
             )

@@ -66,14 +66,17 @@ final class TenantSession {
         self.tokenProvider = tokenProvider
     }
 
-    /// Clears per-tenant state when the selected profile changes.
+    /// Clears per-tenant state when the selected profile changes. While an
+    /// Apply or Remove Baseline runs, its plan and results stay: the run
+    /// keeps writing to its own tenant and reports every step.
     func reset() {
         generation += 1
         preflightChecks = nil
         inventory = [:]
         inventoryErrors = [:]
-        currentPlan = nil
         planError = nil
+        guard !isApplying else { return }
+        currentPlan = nil
         applyResults = nil
     }
 
@@ -88,8 +91,7 @@ final class TenantSession {
     /// Every token of a real tenant is checked before anything is sent with
     /// it: its tenant (`tid`) must be the profile's tenant ID, or, for a
     /// profile with a verified domain, the tenant confirmed for that domain
-    /// (`writeClient`). Otherwise the request fails and nothing is sent
-    /// (bug 5 of the JTKit step 11 survey).
+    /// (`checkedClient`). Otherwise the request fails and nothing is sent.
     func client(for profile: TenantProfile, scopes: [String] = GraphScopes.tenantRead) -> Graph.Client {
         let auth = auth
         let provider = tokenProvider
@@ -114,7 +116,7 @@ final class TenantSession {
                             recorder: Graph.recorder(session: session, log: activityLog, connection: profile.displayName))
     }
 
-    // MARK: - The tenant check (bug 5)
+    // MARK: - The tenant check
 
     /// The tenant ID every token must be for: the profile's tenant ID, or
     /// the one confirmed for its domain; nil until a domain is confirmed.
@@ -124,10 +126,16 @@ final class TenantSession {
         return confirmedTenantIDs["\(profile.id)|\(tenant)"]
     }
 
-    /// A client for writes: its tokens are checked against the profile's
-    /// tenant before anything is sent. A profile with a verified domain is
-    /// confirmed first: the token's tenant must list that domain
-    /// (`organization`'s verified domains), read with that token.
+    /// A client whose tokens are checked against the profile's tenant before
+    /// anything is sent, for Plan, Apply, Preflight, the inventory, export
+    /// and Remove Baseline. A profile with a verified domain is confirmed
+    /// first: the token's tenant must list that domain (`organization`'s
+    /// verified domains), read with that token.
+    func checkedClient(for profile: TenantProfile, scopes: [String]) async throws -> Graph.Client {
+        try await writeClient(for: profile, scopes: scopes)
+    }
+
+    /// A client for writes; see `checkedClient`.
     func writeClient(for profile: TenantProfile, scopes: [String]) async throws -> Graph.Client {
         let tenant = profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
         guard !profile.isDemo, UUID(uuidString: tenant) == nil, expectedTenantID(for: profile) == nil else {
@@ -205,11 +213,17 @@ final class TenantSession {
         // relaunch (they are only populated by a token response).
         _ = try? await auth.accessToken(profile: profile, scopes: GraphScopes.tenantRead)
 
-        let service = PreflightService(client: client(for: profile))
-        let checks = await service.run(
-            grantedScopes: auth.grantedScopes(for: profile),
-            requiredScopes: GraphScopes.tenantRead
-        )
+        let checks: [PreflightCheck]
+        do {
+            let service = PreflightService(client: try await checkedClient(for: profile, scopes: GraphScopes.tenantRead))
+            checks = await service.run(
+                grantedScopes: auth.grantedScopes(for: profile),
+                requiredScopes: GraphScopes.tenantRead
+            )
+        } catch {
+            checks = [PreflightCheck(id: "account", title: "Signed-in account", status: .failed,
+                                     message: error.localizedDescription)]
+        }
         guard generation == startedGeneration else { return }
         preflightChecks = checks
     }
@@ -222,8 +236,16 @@ final class TenantSession {
         defer { isLoadingInventory = false }
         let startedGeneration = generation
 
-        let client = client(for: profile)
         inventoryErrors = [:]
+        let client: Graph.Client
+        do {
+            client = try await checkedClient(for: profile, scopes: GraphScopes.tenantRead)
+        } catch {
+            guard generation == startedGeneration else { return }
+            inventory = [:]
+            for collection in TenantCollection.allCases { inventoryErrors[collection] = error.localizedDescription }
+            return
+        }
 
         // Collections load in parallel; the client caps HTTP concurrency.
         await withTaskGroup(of: (TenantCollection, Result<[TenantObject], any Error>).self) { group in
@@ -245,7 +267,7 @@ final class TenantSession {
                 guard generation == startedGeneration else { continue }
                 switch result {
                 case .success(var objects):
-                    // mobileApps is a mixed collection; show only managed macOS types.
+                    // mobileApps is a mixed collection; show only the app package types.
                     if collection == .apps {
                         objects = objects.filter {
                             TenantCollection.managedAppODataTypes.contains($0.odataType ?? "")

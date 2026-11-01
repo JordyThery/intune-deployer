@@ -28,7 +28,7 @@ struct TenantInventoryView: View {
                         if objects.isEmpty {
                             Text("None")
                                 .font(.callout)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                                 .selectionDisabled()
                         }
                         ForEach(objects) { object in
@@ -58,7 +58,7 @@ struct TenantInventoryView: View {
                 ContentUnavailableView(
                     "Not Signed In",
                     systemImage: "person.crop.circle.badge.questionmark",
-                    description: Text("Sign in to list this tenant's existing objects.")
+                    description: Text("Sign in to list this tenant’s existing objects.")
                 )
             } else if session.inventory.isEmpty && session.inventoryErrors.isEmpty && !session.isLoadingInventory {
                 ContentUnavailableView {
@@ -82,7 +82,7 @@ struct TenantInventoryView: View {
                     Label("Reload Inventory", systemImage: "arrow.clockwise.icloud")
                 }
                 .disabled(!auth.isSignedIn(profile) || session.isLoadingInventory)
-                .help("Fetch the tenant's current objects again from Microsoft Graph")
+                .help("Fetch the tenant’s current objects again from Microsoft Graph")
             }
             ToolbarItem {
                 if session.isExporting {

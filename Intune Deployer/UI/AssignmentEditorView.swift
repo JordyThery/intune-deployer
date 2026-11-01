@@ -67,9 +67,9 @@ struct AssignmentEditorView: View {
                         Text("Mixed").tag(Choice.mixed)
                         Divider()
                     }
-                    Text("Type default").tag(Choice.typeDefault)
-                    Text("Leave unchanged").tag(Choice.leaveUnchanged)
-                    Text("Specific targets").tag(Choice.targets)
+                    Text("Type Default").tag(Choice.typeDefault)
+                    Text("Leave Unchanged").tag(Choice.leaveUnchanged)
+                    Text("Specific Targets").tag(Choice.targets)
                 }
                 .pickerStyle(.menu)
 
@@ -77,7 +77,7 @@ struct AssignmentEditorView: View {
                 case .typeDefault:
                     caption(typeDefaultHint)
                 case .leaveUnchanged:
-                    caption("The item's existing assignments in Intune are not changed.")
+                    caption("The item’s existing assignments in Intune are not changed.")
                 case .mixed:
                     caption("The selected items have different assignments. Choosing an option applies it to all of them.")
                 case .targets:
@@ -102,7 +102,7 @@ struct AssignmentEditorView: View {
         }
         if items.contains(where: { !$0.type.supportsAssignmentFilters }),
            items.contains(where: { $0.type.supportsAssignmentFilters }) {
-            caption("Intune does not support filters on shell scripts or custom attributes — those items are assigned without filters.")
+            caption("Intune doesn’t support filters on shell scripts or custom attributes. Those items are assigned without filters.")
         }
         if items.contains(where: { $0.type == .app }) {
             if items.contains(where: { $0.type != .app }) {
@@ -127,7 +127,7 @@ struct AssignmentEditorView: View {
             if let intent = profile.defaultAssignments[type] {
                 return "Default for \(type.displayName): \(intent.summary). Set in the tenant profile."
             }
-            return "No default for \(type.displayName) — left unchanged. Defaults are set in the tenant profile."
+            return "No default for \(type.displayName), so it’s left unchanged. Defaults are set in the tenant profile."
         }
         return "Each item follows the default for its type, set in the tenant profile."
     }

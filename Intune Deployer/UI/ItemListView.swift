@@ -186,11 +186,11 @@ struct ItemListView: View {
             .disabled(!hasProfile || ids.isEmpty)
         Divider()
         Menu("Assign To") {
-            Button("Type default") { setAssignmentEntries(ids: ids, intent: nil) }
-            Button("Leave unchanged") { setAssignmentEntries(ids: ids, intent: AssignmentIntent()) }
+            Button("Type Default") { setAssignmentEntries(ids: ids, intent: nil) }
+            Button("Leave Unchanged") { setAssignmentEntries(ids: ids, intent: AssignmentIntent()) }
             Divider()
-            Button("All devices") { setAssignmentEntries(ids: ids, intent: .single(.allDevices)) }
-            Button("All users") { setAssignmentEntries(ids: ids, intent: .single(.allUsers)) }
+            Button("All Devices") { setAssignmentEntries(ids: ids, intent: .single(.allDevices)) }
+            Button("All Users") { setAssignmentEntries(ids: ids, intent: .single(.allUsers)) }
             // Groups, exclusions and filters need names — use the assignment editor.
         }
         .disabled(!hasProfile || ids.isEmpty)
@@ -279,13 +279,13 @@ private struct ItemRow: View {
             if let edit {
                 if edit.hasConflict {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.yellow)
-                        .help("The source file changed since the in-app edit — review it in the item's details")
+                        .symbolRenderingMode(.multicolor)
+                        .help("The source file changed since the in-app edit. Review it in the item’s details.")
                         .accessibilityLabel("Edited in the app; source changed since the edit")
                 } else {
                     Image(systemName: "pencil.circle.fill")
                         .foregroundStyle(.secondary)
-                        .help("Content was edited in the app — the edit deploys instead of the file")
+                        .help("Content was edited in the app. The edit deploys instead of the file.")
                         .accessibilityLabel("Edited in the app")
                 }
             }

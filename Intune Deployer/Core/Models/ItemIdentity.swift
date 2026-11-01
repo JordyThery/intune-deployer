@@ -6,13 +6,13 @@ import Foundation
 /// On create and update, the tag `[IntuneDeployer:<shortID>]` is written into
 /// the Intune object's description so re-runs can match tenant objects and
 /// update rather than duplicate. Objects without the tag are never touched.
-/// The legacy `[gw:…]` tag from early builds is still recognised when reading.
+/// The legacy `[gw:…]` tag from early builds is still recognized when reading.
 nonisolated enum ItemIdentity {
-    /// Self-explanatory marker, visible in the Intune portal.
+    /// Self-explanatory marker, visible in the Intune admin center.
     static let tagPrefix = "IntuneDeployer"
 
     /// Lowercase 8-hex-digit prefix of SHA-256 over "sourceID|relativePath".
-    /// The path is Unicode-normalised so NFC/NFD variants of the same file
+    /// The path is Unicode-normalized so NFC/NFD variants of the same file
     /// name produce the same identity.
     static func shortID(sourceID: UUID, relativePath: String) -> String {
         let normalizedPath = relativePath.precomposedStringWithCanonicalMapping
@@ -30,8 +30,8 @@ nonisolated enum ItemIdentity {
     /// The tag naming the tenant profile that deployed an object, written
     /// after the item's tag, e.g. `[IntuneDeployerProfile:7c01a9e2]`: the
     /// first 8 hex digits of SHA-256 over the profile's ID. Orphans and Remove
-    /// Baseline only cover objects of the profile in use (bug 2 of the JTKit
-    /// step 11 survey). A separate tag, so older builds still read the item tag.
+    /// Baseline only cover objects of the profile in use. A separate tag, so
+    /// older builds still read the item tag.
     static let profileTagPrefix = "IntuneDeployerProfile"
 
     static func profileMarker(for profileID: UUID) -> String {
@@ -69,8 +69,19 @@ nonisolated enum ItemIdentity {
         return displayName == prefix || displayName.hasPrefix("\(prefix) ")
     }
 
-    /// Extracts a short ID from a description containing one of our tags
-    /// (current or legacy format). Regex built locally: not Sendable.
+    /// A description without the app's item tag (current or legacy), its
+    /// profile tag and the placeholder text written for empty descriptions.
+    /// Deploy and export both clean descriptions with this.
+    static func strippingTags(from description: String?) -> String {
+        (description ?? "")
+            .replacing(/\s*\[(?:IntuneDeployer|gw):[0-9a-f]{8}\]/, with: "")
+            .replacing(/\s*\[IntuneDeployerProfile:[0-9a-f]{8}\]/, with: "")
+            .replacingOccurrences(of: "Managed by Intune Deployer", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Extracts a short ID from a description containing one of the app's
+    /// tags (current or legacy format). Regex built locally: not Sendable.
     static func shortID(inDescription description: String) -> String? {
         let tagPattern = /\[(?:IntuneDeployer|gw):([0-9a-f]{8})\]/
         guard let match = description.firstMatch(of: tagPattern) else {

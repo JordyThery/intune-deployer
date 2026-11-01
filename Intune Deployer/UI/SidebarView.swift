@@ -135,13 +135,13 @@ struct SidebarView: View {
                     .controlSize(.small)
             } else if store.scanErrors[source.id] != nil {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.yellow)
+                    .symbolRenderingMode(.multicolor)
                     .help(store.scanErrors[source.id] ?? "")
                     .accessibilityLabel("Problem: \(store.scanErrors[source.id] ?? "scan failed")")
             } else if let newTag = store.availableUpdates[source.id] {
                 Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.blue)
-                    .help("Update available — choose “Update to \(newTag)” in the context menu")
+                    .foregroundStyle(.tint)
+                    .help("Update available. Choose “Update to \(newTag)” in the context menu.")
                     .accessibilityLabel("Update available: \(newTag)")
             }
         }

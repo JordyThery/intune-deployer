@@ -21,7 +21,7 @@ nonisolated struct TenantObject: Decodable, Sendable, Identifiable, Hashable {
         displayName ?? name ?? id
     }
 
-    /// Our identity tag short ID if this object was created by this app.
+    /// The app's identity tag short ID if this object was created by this app.
     var taggedShortID: String? {
         description.flatMap(ItemIdentity.shortID(inDescription:))
     }
@@ -45,7 +45,7 @@ nonisolated enum TenantCollection: String, CaseIterable, Sendable, Identifiable 
     case shellScripts
     case customAttributes
     case assignmentFilters
-    /// macOS .pkg/.dmg apps (beta: macOSPkgApp/macOSDmgApp).
+    /// App packages: .pkg/.dmg (macOS) and .ipa (iOS/iPadOS).
     case apps
 
     var id: String { rawValue }

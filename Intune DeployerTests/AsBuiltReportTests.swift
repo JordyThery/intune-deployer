@@ -42,7 +42,7 @@ struct AsBuiltReportTests {
         #expect(markdown.contains("```json"))
         #expect(markdown.contains("platforms"))
         #expect(markdown.contains("1 of 2 steps failed"))
-        #expect(markdown.contains("⚠️ Example warning"))
+        #expect(markdown.contains("Warning: Example warning"))
     }
 
     @Test func htmlIsEscapedAndComplete() {
@@ -51,12 +51,12 @@ struct AsBuiltReportTests {
         #expect(!html.contains("Demo & Co <test>")) // raw form must not leak
         #expect(html.contains("<details>"))
         #expect(html.contains("All devices"))
-        #expect(html.contains("❌ HTTP 400"))
+        #expect(html.contains("Failed: HTTP 400"))
         #expect(html.hasPrefix("<!DOCTYPE html>"))
     }
 
     @Test func assignmentDescriptionsAreReadable() {
-        #expect(AsBuiltReport.assignmentDescription(nil) == "Not assigned (left untouched)")
+        #expect(AsBuiltReport.assignmentDescription(nil) == "Left unchanged")
         #expect(AsBuiltReport.assignmentDescription(
             [ResolvedAssignment(target: .group(id: "g1", name: "Pilots"), filter: .pendingCreation(name: "ADE"), filterMode: .exclude)]
         ) == "Group “Pilots” with exclude filter “ADE”")

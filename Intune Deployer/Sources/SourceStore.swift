@@ -24,10 +24,15 @@ final class SourceStore {
     /// Per-item platform choices for `.mobileconfig` profiles.
     let platformOverrides: PlatformOverrideStore
 
-    private let storageURL: URL
+    private let file: SavedList<BaselineSource>
+    /// Every identity each source key had (`source-identities.json`).
+    private let identityFile: SavedList<SourceIdentity>
+    private(set) var identities: [SourceIdentity] = []
     /// Where the sources are saved (`sources.json`).
-    var fileLocation: URL { storageURL }
+    var fileLocation: URL { file.fileURL }
     private let cacheRoot: URL
+    /// The GitHub token: the app's store (under tests one that starts empty).
+    private let gitHubToken: @MainActor () -> String?
     /// GitHub requests go through JTKit's request recorder into the activity log.
     private let gitHub: RequestRecorder
     /// Monotonic per-source scan counter: only the latest-started scan may
@@ -42,19 +47,95 @@ final class SourceStore {
     ///   - gitHubSession: sends the GitHub requests (a sandbox run's reaches
     ///     nothing); by default the real network, under tests a session that
     ///     refuses and records every request (`UnderTest.attempts`).
+    ///   - gitHubToken: the GitHub token; by default `GitHubTokenStore`'s.
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
-         activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession? = nil) {
+         activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession? = nil,
+         gitHubToken: (@MainActor () -> String?)? = nil) {
         let gitHubSession = gitHubSession
             ?? (TestRun.isActive ? UnderTest.refusingSession(kind: "GitHub") : .shared)
         // Application Support/Intune Deployer; under the unit tests a temporary folder.
         let base = folder ?? UnderTest.dataFolder
-        self.storageURL = storageURL ?? base.appendingPathComponent("sources.json")
+        let storageURL = storageURL ?? base.appendingPathComponent("sources.json")
+        self.file = SavedList(fileURL: storageURL, name: "sources")
+        self.identityFile = SavedList(fileURL: storageURL.deletingLastPathComponent().appendingPathComponent("source-identities.json"),
+                                      name: "source identities")
+        self.gitHubToken = gitHubToken ?? { GitHubTokenStore.load() }
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
         self.edits = editStore ?? ItemEditStore(storageURL: folder?.appendingPathComponent("item-edits.json"))
         self.platformOverrides = platformStore
             ?? PlatformOverrideStore(storageURL: folder?.appendingPathComponent("platform-overrides.json"))
         self.gitHub = RequestRecorder(session: gitHubSession, log: activityLog, category: "GitHub", service: "GitHub")
         load()
+    }
+
+    /// Why some of the app's saved data isn't saved: a file that couldn't be
+    /// read (kept aside, never saved over). Empty when all is well.
+    var problems: [String] {
+        [file.problem, identityFile.problem, edits.problem, platformOverrides.problem].compactMap(\.self)
+    }
+
+    /// Sources whose items aren't all known: not scanned yet, scanning, or
+    /// the last scan or sync failed. Plan doesn't run while a chosen item
+    /// may be in one of them.
+    var unscannedSourceNames: [String] {
+        sources.filter { scanResults[$0.id] == nil || scanErrors[$0.id] != nil || scanningSourceIDs.contains($0.id) }
+            .map(\.name)
+    }
+
+    // MARK: - Source identity
+
+    /// The ID for a new source with this key: the identity the key had
+    /// before (a source removed and added again, or named by an imported
+    /// tenant profile) unless a current source uses it, else a new one.
+    private func newSourceID(forKey key: String) -> UUID {
+        let inUse = Set(sources.map(\.id))
+        if let earlier = identities.first(where: { $0.key == key && !inUse.contains($0.sourceID) }) {
+            return earlier.sourceID
+        }
+        let id = UUID()
+        remember(SourceIdentity(key: key, sourceID: id))
+        return id
+    }
+
+    private func remember(_ identity: SourceIdentity) {
+        guard !identities.contains(identity) else { return }
+        identities.append(identity)
+        identityFile.save(identities)
+    }
+
+    /// The identities of the current sources, for a tenant profile export.
+    var currentIdentities: [SourceIdentity] {
+        sources.map { SourceIdentity(key: $0.identityKey, sourceID: $0.id) }
+    }
+
+    /// Item IDs an item had under its source's earlier identities (one no
+    /// current source uses), so Plan still matches the objects deployed
+    /// under them.
+    func earlierIDs(of item: InferredItem) -> Set<String> {
+        guard let source = sources.first(where: { $0.id == item.sourceID }) else { return [] }
+        let inUse = Set(sources.map(\.id))
+        return Set(identities.filter { $0.key == source.identityKey && !inUse.contains($0.sourceID) }
+            .map { ItemIdentity.shortID(sourceID: $0.sourceID, relativePath: item.relativePath) })
+    }
+
+    /// An imported tenant profile with the identities of its sources: they
+    /// are remembered, so the sources keep their item IDs when added on this
+    /// Mac. A source already here under another identity keeps it; the
+    /// profile's chosen items and assignments are moved to its item IDs,
+    /// and Plan matches the objects deployed under the profile's.
+    func adopt(_ profile: TenantProfile, identities imported: [SourceIdentity]) -> TenantProfile {
+        imported.forEach(remember)
+        var profile = profile
+        for identity in imported {
+            for source in sources where source.identityKey == identity.key && source.id != identity.sourceID {
+                for item in scanResults[source.id]?.items ?? [] {
+                    let earlier = ItemIdentity.shortID(sourceID: identity.sourceID, relativePath: item.relativePath)
+                    if profile.selectedItemIDs.remove(earlier) != nil { profile.selectedItemIDs.insert(item.id) }
+                    if let intent = profile.assignments.removeValue(forKey: earlier) { profile.assignments[item.id] = intent }
+                }
+            }
+        }
+        return profile
     }
 
     // MARK: - Managing sources
@@ -70,9 +151,12 @@ final class SourceStore {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            let name = url.lastPathComponent
+            let kind = BaselineSource.Kind.localFolder(bookmark: bookmark)
             let source = BaselineSource(
-                name: url.lastPathComponent,
-                kind: .localFolder(bookmark: bookmark),
+                id: newSourceID(forKey: BaselineSource.identityKey(name: name, kind: kind)),
+                name: name,
+                kind: kind,
                 lastKnownPath: url.path
             )
             sources.append(source)
@@ -85,9 +169,11 @@ final class SourceStore {
 
     /// Adds a GitHub repository source and starts its first sync.
     func addGitHubSource(_ spec: GitHubSpec) {
+        let kind = BaselineSource.Kind.gitHub(spec)
         let source = BaselineSource(
+            id: newSourceID(forKey: BaselineSource.identityKey(name: spec.displayName, kind: kind)),
             name: spec.displayName,
-            kind: .gitHub(spec),
+            kind: kind,
             lastKnownPath: spec.repoURL?.absoluteString ?? ""
         )
         sources.append(source)
@@ -184,7 +270,7 @@ final class SourceStore {
         defer { scanningSourceIDs.remove(sourceID) }
 
         do {
-            let token = GitHubTokenStore.load()
+            let token = gitHubToken()
             let info = try await GitHubClient.fetchRepoInfo(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let releases = try await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let release = GitHubClient.pickRelease(from: releases, tagPrefix: spec.tagPrefix)
@@ -223,7 +309,7 @@ final class SourceStore {
         scanningSourceIDs.insert(source.id)
         defer { scanningSourceIDs.remove(source.id) }
         guard cacheExists(for: source.id) else {
-            scanErrors[source.id] = "Not synced yet — choose Sync Now from the source's context menu."
+            scanErrors[source.id] = "Not synced yet. Choose Sync Now from the source’s context menu."
             return
         }
         do {
@@ -237,8 +323,10 @@ final class SourceStore {
 
     /// Checks all GitHub sources for a newer matching release tag.
     func checkGitHubUpdates() async {
-        let token = GitHubTokenStore.load()
-        for sourceID in sources.filter(\.isGitHub).map(\.id) {
+        let gitHubSources = sources.filter(\.isGitHub).map(\.id)
+        guard !gitHubSources.isEmpty else { return }
+        let token = gitHubToken()
+        for sourceID in gitHubSources {
             guard let spec = sources.first(where: { $0.id == sourceID })?.gitHubSpec,
                   let releases = try? await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token,
                                                                        recorder: gitHub),
@@ -268,11 +356,11 @@ final class SourceStore {
         var root = try GitHubClient.contentRoot(in: contentDirectory(for: source.id))
         if let subfolder = source.gitHubSpec?.subfolder, !subfolder.isEmpty {
             guard !subfolder.split(separator: "/").contains("..") else {
-                throw GitHubError.notFound("The subfolder must stay inside the repository")
+                throw GitHubError.notFound("The subfolder must stay inside the repository.")
             }
             root = root.appending(path: subfolder)
             guard FileManager.default.fileExists(atPath: root.path) else {
-                throw GitHubError.notFound("Subfolder “\(subfolder)” does not exist in the synced repository")
+                throw GitHubError.notFound("Subfolder “\(subfolder)” doesn’t exist in the synced repository.")
             }
         }
         return root
@@ -329,8 +417,8 @@ final class SourceStore {
     }
 
     /// Reads an item's file, bypassing any in-app edit. Local folders need
-    /// security-scoped access; the GitHub cache lives in our container and is
-    /// read directly.
+    /// security-scoped access; the GitHub cache lives in the app's container
+    /// and is read directly.
     func originalFileContents(of item: InferredItem) throws -> Data {
         guard let source = sources.first(where: { $0.id == item.sourceID }) else {
             throw CocoaError(.fileNoSuchFile)
@@ -373,25 +461,15 @@ final class SourceStore {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        do {
-            sources = try JSONDecoder().decode([BaselineSource].self, from: data)
-        } catch {
-            Self.logger.error("Failed to decode sources.json: \(error.localizedDescription)")
+        sources = file.load()
+        identities = identityFile.load()
+        // Sources added before identities were kept: their key gets their ID.
+        for source in sources where !identities.contains(where: { $0.key == source.identityKey }) {
+            remember(SourceIdentity(key: source.identityKey, sourceID: source.id))
         }
     }
 
     private func save() {
-        do {
-            try FileManager.default.createDirectory(
-                at: storageURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(sources).write(to: storageURL, options: .atomic)
-        } catch {
-            Self.logger.error("Failed to save sources.json: \(error.localizedDescription)")
-        }
+        file.save(sources)
     }
 }

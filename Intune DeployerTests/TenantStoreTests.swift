@@ -23,7 +23,7 @@ struct TenantStoreTests {
 
     private func sampleProfile() -> TenantProfile {
         TenantProfile(
-            id: UUID(uuidString: "E367022F-03C4-4D89-9D7F-AB0C17F1C105")!,
+            id: UUID(uuidString: "12345678-0000-4000-8000-0000000000a1")!,
             displayName: "Contoso",
             clientID: "11111111-2222-3333-4444-555555555555",
             tenantID: "contoso.onmicrosoft.com",

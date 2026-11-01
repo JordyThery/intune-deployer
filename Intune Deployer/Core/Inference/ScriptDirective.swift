@@ -6,7 +6,7 @@ import Foundation
 ///     # intune: runAsAccount=user frequency=1440 retries=3 hideNotifications=true
 ///
 /// Multiple directive lines are merged; later lines win on key conflicts.
-/// Unknown keys and invalid values are collected for diagnostics.
+/// Unknown keys and invalid values are shown with the item's detection.
 nonisolated struct ScriptDirective: Sendable, Equatable {
     enum DeclaredType: String, Sendable {
         case shellScript
@@ -19,6 +19,7 @@ nonisolated struct ScriptDirective: Sendable, Equatable {
     var frequencyMinutes: Int?
     var retries: Int?
     var hideNotifications: Bool?
+    /// Keys and values the parser doesn't know (shown with the detection).
     var unknownKeys: [String] = []
 
     /// Scans the first `maxLines` lines of a script for directive comments.

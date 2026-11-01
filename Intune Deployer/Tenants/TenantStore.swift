@@ -57,9 +57,13 @@ final class TenantStore {
 
     /// The picker's, the Connection menu's and Settings' role: the saved
     /// tenant in use, or in demo mode the demo tenant. Choosing a saved
-    /// tenant leaves demo mode.
-    func connectionRole(selection: Binding<UUID?>) -> ConnectionRole {
-        .active(selection: selection, demo: demoChoice)
+    /// tenant leaves demo mode. While `isBusy` (a Plan, Apply or Remove
+    /// Baseline runs) the tenant in use doesn't change, so the run keeps
+    /// its results.
+    func connectionRole(lockedWhile isBusy: @escaping @MainActor () -> Bool) -> ConnectionRole {
+        .active(selection: Binding(get: { self.selectedProfileID },
+                                   set: { if !isBusy() { self.selectedProfileID = $0 } }),
+                demo: demoChoice)
     }
 
     /// Why the last change made in the main window wasn't saved.
@@ -137,10 +141,14 @@ final class TenantStore {
         }
     }
 
-    /// "Import Tenant Profile…" in the + menu.
-    func makeImport() -> ConnectionImport<TenantProfile> {
+    /// "Import Tenant Profile…" in the + menu. `adopt` gets the profile and
+    /// the identities of the sources it was exported with
+    /// (`SourceStore.adopt`), so its items keep their IDs on this Mac.
+    func makeImport(adopt: @escaping @MainActor (TenantProfile, [SourceIdentity]) -> TenantProfile = { profile, _ in profile })
+        -> ConnectionImport<TenantProfile> {
         ConnectionImport(title: "Import Tenant Profile…", contentTypes: [.json]) { data in
-            try TenantProfile.importedProfile(from: data, existingIDs: Set(self.profiles.map(\.id)))
+            let profile = try TenantProfile.importedProfile(from: data, existingIDs: Set(self.profiles.map(\.id)))
+            return adopt(profile, TenantProfile.exportedIdentities(in: data))
         }
     }
 
@@ -216,7 +224,7 @@ nonisolated enum TenantStoreError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notSaved(let name):
-            "“\(name)” is no longer in the saved tenant profiles, so the change wasn't saved."
+            "“\(name)” is no longer in the saved tenant profiles, so the change wasn’t saved."
         case .notAProfile(let detail):
             "Not a valid tenant profile: \(detail)"
         case .demoProfile(let name):
@@ -259,13 +267,28 @@ extension TenantProfile {
     /// mode's fixed token, never with MSAL, and is never saved.
     var isDemo: Bool { connection.isDemo }
 
-    /// The profile as an export file. The MSAL account identifier is
-    /// machine/account-specific and is left out.
-    func exportText() throws -> String {
+    /// The profile as an export file, with the identities of the sources
+    /// (`sourceIdentities`), so its items keep their IDs on another Mac. The
+    /// MSAL account identifier is machine/account-specific and is left out.
+    func exportText(sourceIdentities: [SourceIdentity] = []) throws -> String {
         var exported = self
         exported.accountIdentifier = nil
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return String(decoding: try encoder.encode(exported), as: UTF8.self)
+        var object = try JSONSerialization.jsonObject(with: encoder.encode(exported)) as? [String: Any] ?? [:]
+        if !sourceIdentities.isEmpty {
+            object[Self.sourceIdentitiesKey] = try JSONSerialization.jsonObject(with: encoder.encode(sourceIdentities))
+        }
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The export's extra key; tenants.json never has it.
+    static let sourceIdentitiesKey = "sourceIdentities"
+
+    /// The source identities an export file carries; none in older exports.
+    static func exportedIdentities(in data: Data) -> [SourceIdentity] {
+        nonisolated struct Extras: Decodable { let sourceIdentities: [SourceIdentity]? }
+        return (try? JSONDecoder().decode(Extras.self, from: data))?.sourceIdentities ?? []
     }
 }

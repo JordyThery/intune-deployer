@@ -25,6 +25,7 @@ struct PreflightView: View {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: check.status.symbolName)
                             .foregroundStyle(color(for: check.status))
+                            .accessibilityLabel(check.status.accessibilityName)
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(check.title).font(.headline)
@@ -69,7 +70,7 @@ struct PreflightView: View {
             }
             .padding()
         }
-        .frame(width: 560, height: 480)
+        .frame(minWidth: 560, idealWidth: 560, minHeight: 480, idealHeight: 480)
         .task {
             if session.preflightChecks == nil {
                 await session.runPreflight(for: profile)

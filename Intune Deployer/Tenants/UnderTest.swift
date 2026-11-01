@@ -3,8 +3,8 @@ import JTKit
 import OSLog
 
 /// Under tests the app reaches no saved tenant and no GitHub repository, and
-/// keeps its files and settings out of the real ones (JTKit ROADMAP step 11,
-/// decided by Jordy). "Under tests" is the host of the unit tests and a
+/// keeps its files and settings out of the real ones (JTKit's release
+/// check). "Under tests" is the host of the unit tests and a
 /// sandbox launch (`-JTKitSandbox YES`, which the UI tests use; JTKit's
 /// `TestRun.isActive`). Every attempt to reach a saved tenant (a sign-in, a
 /// token, a Graph request) or GitHub is refused before anything is sent and

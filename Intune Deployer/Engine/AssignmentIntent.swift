@@ -105,10 +105,21 @@ nonisolated struct AssignmentTarget: Codable, Hashable, Sendable {
             case .group: "Group"
             }
         }
+
+        /// The name in a menu: title-style capitalization.
+        var menuTitle: String {
+            switch self {
+            case .allDevices: "All Devices"
+            case .allUsers: "All Users"
+            case .group: "Group"
+            }
+        }
     }
 
     var kind: Kind = .include
-    var scope: Scope = .allDevices
+    /// A new target is a group without a name, which Plan refuses until one
+    /// is set: All devices and All users are always an explicit choice.
+    var scope: Scope = .group
     /// Static Entra security group, resolved by display name at plan time.
     var groupName: String = ""
     /// Assignment filter, referenced by display name; empty = no filter.
@@ -117,7 +128,7 @@ nonisolated struct AssignmentTarget: Codable, Hashable, Sendable {
     /// Install intent for app items; ignored for every other type.
     var appIntent: AssignmentIntent.AppIntent = .required
 
-    init(kind: Kind = .include, scope: Scope = .allDevices, groupName: String = "") {
+    init(kind: Kind = .include, scope: Scope = .group, groupName: String = "") {
         self.kind = kind
         self.scope = scope
         self.groupName = groupName
@@ -126,7 +137,7 @@ nonisolated struct AssignmentTarget: Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .include
-        scope = try container.decodeIfPresent(Scope.self, forKey: .scope) ?? .allDevices
+        scope = try container.decodeIfPresent(Scope.self, forKey: .scope) ?? .group
         groupName = try container.decodeIfPresent(String.self, forKey: .groupName) ?? ""
         filterName = try container.decodeIfPresent(String.self, forKey: .filterName) ?? ""
         filterMode = try container.decodeIfPresent(AssignmentIntent.FilterMode.self, forKey: .filterMode) ?? .include
@@ -295,7 +306,7 @@ nonisolated enum AssignmentBody {
 }
 
 /// One assignment, compared the same way whether built for `/assign` or
-/// read from the tenant (bug 1 of the JTKit step 11 survey): target type,
+/// read from the tenant: target type,
 /// group, filter and its mode, and (apps) install intent. Case and Graph's
 /// "no filter" forms don't count.
 nonisolated struct AssignmentEntry: Hashable, Sendable {

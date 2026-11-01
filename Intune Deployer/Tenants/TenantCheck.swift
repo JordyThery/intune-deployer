@@ -1,7 +1,7 @@
 import Foundation
 
-/// The tenant of an access token, checked before anything is sent with it
-/// (bug 5 of the JTKit step 11 survey): a profile's sign-in could otherwise
+/// The tenant of an access token, checked before anything is sent with it:
+/// a profile's sign-in could otherwise
 /// be another tenant's account, and every write would land there.
 nonisolated enum TenantCheck {
     enum Failure: LocalizedError, Equatable {
@@ -12,11 +12,11 @@ nonisolated enum TenantCheck {
         var errorDescription: String? {
             switch self {
             case .unreadable:
-                "The sign-in's token doesn't say which tenant it is for, so nothing was sent."
+                "The sign-in’s token doesn’t say which tenant it is for, so nothing was sent."
             case .otherTenant(let profile):
-                "The signed-in account's token is for another tenant than “\(profile)”, so nothing was sent. Sign out of \(profile) and sign in with an account of that tenant."
+                "The signed-in account belongs to a different tenant than “\(profile)”, so nothing was sent. Sign out of “\(profile)” and sign in with an account from that tenant."
             case .domainNotInTenant(let domain, let profile):
-                "The signed-in tenant doesn't have “\(domain)” as a verified domain, so nothing was sent to “\(profile)”. Check the tenant ID in Settings › Connections."
+                "The signed-in tenant doesn’t have “\(domain)” as a verified domain, so nothing was sent to “\(profile)”. Check the tenant ID in Settings › Connections."
             }
         }
     }

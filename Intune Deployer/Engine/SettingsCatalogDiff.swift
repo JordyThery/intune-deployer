@@ -89,12 +89,6 @@ nonisolated enum SettingsCatalogDiff {
         }
     }
 
-    /// Every definition ID a change refers to, parents included (for name
-    /// resolution).
-    static func referencedDefinitionIDs(_ changes: [SettingChange]) -> Set<String> {
-        Set(changes.flatMap { $0.parentDefinitionIDs + [$0.definitionID] })
-    }
-
     // MARK: - Flattening
 
     private static func entries(in body: Data) -> [String: Entry]? {

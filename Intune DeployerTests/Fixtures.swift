@@ -69,7 +69,7 @@ enum Fixtures {
     static let intuneManagementSettingsCatalogJSON = """
     {
       "@odata.type": "#microsoft.graph.deviceManagementConfigurationPolicy",
-      "id": "f1e2d3c4-0000-1111-2222-333344445555",
+      "id": "12345678-0000-4000-8000-0000000000f1",
       "createdDateTime": "2024-01-01T00:00:00Z",
       "lastModifiedDateTime": "2024-06-01T00:00:00Z",
       "name": "macOS - Updates - Deferral {{OrgName}}",
@@ -193,7 +193,7 @@ enum Fixtures {
         <key>PayloadType</key>
         <string>Configuration</string>
         <key>PayloadUUID</key>
-        <string>8D44A5CC-0000-1111-2222-333344445555</string>
+        <string>12345678-0000-4000-8000-0000000000F2</string>
         <key>PayloadVersion</key>
         <integer>1</integer>
     </dict>

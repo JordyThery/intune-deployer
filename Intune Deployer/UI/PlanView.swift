@@ -27,7 +27,7 @@ struct PlanView: View {
             Divider()
             footer
         }
-        .frame(width: 680, height: 560)
+        .frame(minWidth: 680, idealWidth: 680, minHeight: 560, idealHeight: 560)
         .fileExporter(
             isPresented: Binding(
                 get: { reportDocument != nil },
@@ -89,8 +89,8 @@ struct PlanView: View {
                                 Text(issue.message).font(.callout)
                             }
                         } icon: {
-                            Image(systemName: issue.severity == .error ? "xmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(issue.severity == .error ? .red : .yellow)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
                         }
                     }
                 }
@@ -138,7 +138,7 @@ struct PlanView: View {
                 } header: {
                     Text("Orphaned (tagged but no longer selected)")
                 } footer: {
-                    Text("Orphans are deleted only when ticked. Objects without this app's tag are never touched.")
+                    Text("Orphans are deleted only when ticked. Objects without this app’s tag are never touched.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -168,9 +168,7 @@ struct PlanView: View {
             }
             if let results = session.applyResults, !session.isApplying {
                 let failures = results.count(where: \.isFailure)
-                Text(failures == 0
-                    ? "Applied \(results.count) step\(results.count == 1 ? "" : "s") successfully"
-                    : "\(failures) of \(results.count) steps failed")
+                Text(ApplyResult.summary(results))
                     .font(.callout)
                     .foregroundStyle(failures == 0 ? Color.secondary : .red)
             }
@@ -186,6 +184,7 @@ struct PlanView: View {
                 .help("Save a report of everything that was deployed")
             }
             Button("Close") { dismiss() }
+                .keyboardShortcut(.cancelAction)
             if session.applyResults == nil {
                 Button("Apply…") {
                     // from two deletions the number is typed, which a dialog can't hold
@@ -255,11 +254,12 @@ struct PlanView: View {
             namingPrefix: profile.namingPrefix,
             plan: plan,
             results: results,
-            date: .now
+            date: .now,
+            variables: profile.variables
         )
         let stamp = Date.now.formatted(.iso8601.year().month().day())
         reportType = markdown ? .plainText : .html
-        reportFilename = "AsBuilt-\(profile.displayName)-\(stamp).\(markdown ? "md" : "html")"
+        reportFilename = "AsBuilt-\(TenantProfile.fileNameSafe(profile.displayName))-\(stamp).\(markdown ? "md" : "html")"
         reportDocument = TextExportDocument(text: markdown ? AsBuiltReport.markdown(input) : AsBuiltReport.html(input))
     }
 }
@@ -414,10 +414,13 @@ struct ApplyResultsList: View {
                 switch result.outcome {
                 case .success:
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        .accessibilityLabel("Succeeded")
                 case .failure:
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                        .accessibilityLabel("Failed")
                 case .skipped:
                     Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                        .accessibilityLabel("Skipped")
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.title)

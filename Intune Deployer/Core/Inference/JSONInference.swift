@@ -63,7 +63,7 @@ nonisolated enum JSONInference {
                 reason: "JSON shape: rule + platform (assignment filter)"
             ))
         }
-        return .skip(reason: "Unrecognised JSON shape (no @odata.type and no known key pattern)")
+        return .skip(reason: "Unrecognized JSON shape (no @odata.type and no known key pattern)")
     }
 
     private static func classify(odataType: String, dict: [String: Any], displayName: String?) -> Outcome {

@@ -4,10 +4,10 @@ import Observation
 import OSLog
 
 /// One in-app content override for a source item. The source file is never
-/// written — the edit deploys instead of the file until it is reverted or
+/// written: the edit deploys instead of the file until it is reverted or
 /// the source catches up (then it clears itself).
 nonisolated struct ItemEdit: Codable, Sendable, Hashable {
-    /// Item identity short ID (sourceID + relative path) — unchanged by the
+    /// Item identity short ID (sourceID + relative path), unchanged by the
     /// edit, so the tenant object keeps its identity tag.
     let itemID: String
     let sourceID: UUID
@@ -26,6 +26,7 @@ nonisolated struct ItemEdit: Codable, Sendable, Hashable {
 /// a different Graph collection while keeping its identity tag).
 nonisolated enum ItemEditValidation {
     static let maxSize = 2 * 1024 * 1024
+    static let tooLarge = "The content is larger than 2 MB. Edit the source file instead."
 
     enum Outcome: Equatable {
         case valid(Data)
@@ -35,7 +36,7 @@ nonisolated enum ItemEditValidation {
     static func validate(text: String, for item: InferredItem) -> Outcome {
         let data = Data(text.utf8)
         guard data.count <= maxSize else {
-            return .invalid("The edited content is larger than 2 MB — edit the source file directly instead.")
+            return .invalid(Self.tooLarge)
         }
         switch InferenceEngine.classify(data: data, url: item.fileURL, relativePath: item.relativePath, sourceID: item.sourceID) {
         case .item(let edited):
@@ -53,16 +54,18 @@ nonisolated enum ItemEditValidation {
 @MainActor
 @Observable
 final class ItemEditStore {
-    private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "ItemEditStore")
-
     private(set) var edits: [String: ItemEdit] = [:]
-    private let storageURL: URL
+    private let file: SavedList<ItemEdit>
+
+    /// Why edits aren't saved (the file couldn't be read); nil when fine.
+    var problem: String? { file.problem }
 
     init(storageURL: URL? = nil) {
         // Application Support/Intune Deployer; under the unit tests a temporary folder.
         let base = UnderTest.dataFolder
-        self.storageURL = storageURL ?? base.appendingPathComponent("item-edits.json")
-        load()
+        file = SavedList(fileURL: storageURL ?? base.appendingPathComponent("item-edits.json"), name: "item edits")
+        // Duplicate IDs (hand-edited file) must not crash the launch.
+        edits = Dictionary(file.load().map { ($0.itemID, $0) }, uniquingKeysWith: { _, newer in newer })
     }
 
     func edit(for itemID: String) -> ItemEdit? {
@@ -114,7 +117,8 @@ final class ItemEditStore {
 
     /// Reconciles this source's edits against the current file contents
     /// (keyed by relative path; a missing path means the file is gone):
-    /// - file gone → edit removed
+    /// - file gone → edit kept (a file evicted to iCloud or a folder briefly
+    ///   empty comes back; only Revert or removing the source drops it)
     /// - file now equals the edit → edit cleared (the source caught up)
     /// - file unchanged since the edit → kept
     /// - file changed differently → kept, flagged as a conflict
@@ -126,11 +130,7 @@ final class ItemEditStore {
         var changed = false
         for (id, edit) in edits
         where edit.sourceID == sourceID && consideredPaths.contains(edit.relativePath) {
-            guard let original = originalContents[edit.relativePath] else {
-                edits[id] = nil
-                changed = true
-                continue
-            }
+            guard let original = originalContents[edit.relativePath] else { continue }
             if original == edit.content {
                 edits[id] = nil
                 changed = true
@@ -151,28 +151,7 @@ final class ItemEditStore {
 
     // MARK: - Persistence
 
-    private func load() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        do {
-            let list = try JSONDecoder().decode([ItemEdit].self, from: data)
-            // Duplicate IDs (hand-edited file) must not crash the launch.
-            edits = Dictionary(list.map { ($0.itemID, $0) }, uniquingKeysWith: { _, newer in newer })
-        } catch {
-            Self.logger.error("Failed to decode item-edits.json: \(error.localizedDescription)")
-        }
-    }
-
     private func persist() {
-        do {
-            try FileManager.default.createDirectory(
-                at: storageURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(edits.values.sorted { $0.itemID < $1.itemID }).write(to: storageURL, options: .atomic)
-        } catch {
-            Self.logger.error("Failed to save item-edits.json: \(error.localizedDescription)")
-        }
+        file.save(edits.values.sorted { $0.itemID < $1.itemID })
     }
 }

@@ -4,7 +4,7 @@ import Foundation
 /// field-level changes.
 ///
 /// The comparison is one-way over the DESIRED keys: Graph returns every
-/// property with server defaults, so only fields we intend to manage are
+/// property with server defaults, so only fields the app intends to manage are
 /// compared. Arrays are compared element-wise including count. Server keys
 /// (ids, timestamps, status fields) are stripped from both sides first.
 nonisolated enum GraphDiff {
@@ -126,7 +126,7 @@ nonisolated enum GraphDiff {
         return String(describing: value)
     }
 
-    /// Human-readable value for diff rows; long blobs are summarised.
+    /// Human-readable value for diff rows; long blobs are summarized.
     static func display(_ value: Any) -> String {
         let text = canonical(value)
         if text.count > 120 {
