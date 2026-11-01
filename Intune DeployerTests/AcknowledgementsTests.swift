@@ -7,7 +7,7 @@ import Testing
 @MainActor
 @Suite("Acknowledgements")
 struct AcknowledgementsTests {
-    /// The licence shown in About must be the one in THIRD-PARTY-NOTICES.md, unchanged.
+    /// The license shown in About must be the one in THIRD-PARTY-NOTICES.md, unchanged.
     @Test func licenceMatchesThirdPartyNotices() throws {
         let repository = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

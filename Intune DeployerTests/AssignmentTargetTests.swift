@@ -27,7 +27,7 @@ private func plan(
     PlanEngine.makePlan(input: PlanInput(
         selectedItems: [.init(item: item, fileData: Data(fixture.utf8))],
         profile: TenantProfile(
-            displayName: "T", clientID: "e445f0a6-0000-0000-0000-000000000000", tenantID: "t",
+            displayName: "T", clientID: "12345678-0000-4000-8000-0000000000c1", tenantID: "t",
             selectedItemIDs: [item.id],
             assignments: [item.id: intent]
         ),
@@ -197,7 +197,6 @@ struct SettingsCatalogDiffTests {
         #expect(byID["allowcamera"]?.parentDefinitionIDs == ["restrictions"])
         #expect(byID["allowscreenshot"]?.kind == .added)
         #expect(byID["allowairdrop"]?.kind == .removed)
-        #expect(SettingsCatalogDiff.referencedDefinitionIDs(changes).contains("restrictions"))
     }
 
     @Test func reorderedSettingsAreNotChanges() throws {

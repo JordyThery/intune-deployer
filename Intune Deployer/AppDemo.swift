@@ -20,7 +20,7 @@ enum AppDemo {
         : DemoMode(key: "demoMode")
 
     /// A sandbox run (`-JTKitSandbox YES`, UI tests) or the unit tests' host
-    /// (JTKit ROADMAP step 11): the real tenants, the tenant in use, sources,
+    /// (JTKit's release check): the real tenants, the tenant in use, sources,
     /// settings and the tour are never read or written, GitHub is blocked
     /// and there is no update check.
     static var isSandboxed: Bool { DemoMode.isSandboxLaunch || TestRun.isUnitTestHost }

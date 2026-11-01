@@ -51,8 +51,7 @@ struct IntuneDeployerApp: App {
             // The toolbar picker's items, as JTKit's Connection menu, with Demo Mode.
             ConnectionCommands(
                 store: tenantStore.connections,
-                roles: [tenantStore.connectionRole(selection: Binding(get: { tenantStore.selectedProfileID },
-                                                                      set: { tenantStore.selectedProfileID = $0 }))]
+                roles: [tenantStore.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })]
             ) {
                 DemoModeSwitch(session: session)
             }
@@ -68,7 +67,7 @@ struct IntuneDeployerApp: App {
         SettingsWindow(updates: updates, opensTabsByName: true) {
             SettingsContent.general
         } tabs: {
-            SettingsContent.tabs(tenants: tenantStore, auth: auth)
+            SettingsContent.tabs(tenants: tenantStore, auth: auth, sources: sourceStore, session: session)
                 // Settings › Connections notes that these are the real tenants.
                 .environment(AppDemo.mode)
         }

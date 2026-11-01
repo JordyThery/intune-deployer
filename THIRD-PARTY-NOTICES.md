@@ -1,7 +1,7 @@
 # Third-party notices
 
 Intune Deployer is MIT licensed (see LICENSE). It includes the following
-project, which is distributed under its own licence.
+project, which is distributed under its own license.
 
 ## Microsoft Authentication Library for iOS and macOS (MSAL)
 
@@ -12,9 +12,9 @@ project, which is distributed under its own licence.
 Intune Deployer uses MSAL to sign in to Entra ID and get access to Microsoft
 Graph. MSAL is used unmodified.
 
-### Licence
+### License
 
-The licence below is copied unchanged from MSAL's `LICENSE` file at version 2.16.0.
+The license below is copied unchanged from MSAL's `LICENSE` file at version 2.16.0.
 
 ```
 MIT License

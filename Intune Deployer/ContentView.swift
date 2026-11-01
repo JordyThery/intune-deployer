@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var platformFilter: ItemPlatform?
     @State private var authErrorMessage: String?
     @State private var showingPlan = false
+    /// The saved-data problems already shown, so each is shown once.
+    @State private var shownProblems: Set<String> = []
 
     var body: some View {
         NavigationSplitView {
@@ -76,7 +78,7 @@ struct ContentView: View {
                     Label("Plan", systemImage: "list.bullet.clipboard")
                 }
                 .keyboardShortcut("p", modifiers: .command)
-                .help("Dry-run: compute what would change in the active tenant (⌘P)")
+                .help("Dry run: compute what would change in the tenant in use (⌘P)")
                 .disabled(!canPlan)
             }
             ToolbarItem {
@@ -96,7 +98,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Intune Deployer")
-        .alert("Sign-in Failed", isPresented: Binding(
+        .alert("Sign-In Failed", isPresented: Binding(
             get: { authErrorMessage != nil },
             set: { if !$0 { authErrorMessage = nil } }
         )) {
@@ -111,6 +113,14 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(tenantStore.saveError ?? "")
+        }
+        .alert("Saved Data Couldn’t Be Read", isPresented: Binding(
+            get: { !unshownProblems.isEmpty },
+            set: { if !$0 { shownProblems.formUnion(store.problems) } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(unshownProblems.joined(separator: "\n\n"))
         }
         .task {
             // Restore cached accounts for all profiles (keychain token cache).
@@ -137,13 +147,6 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: selectedSidebarTenant?.id) {
-            // Browsing a tenant in the sidebar also makes it the active
-            // tenant; the demo tenant is never saved as the one in use.
-            if let profile = selectedSidebarTenant, !profile.isDemo, tenantStore.selectedProfileID != profile.id {
-                tenantStore.selectedProfileID = profile.id
-            }
-        }
         .guidedTour(tour)
     }
 
@@ -154,14 +157,13 @@ struct ContentView: View {
     private var tenantPicker: some View {
         ConnectionPicker(
             store: tenantStore.connections,
-            role: tenantStore.connectionRole(selection: Binding(get: { tenantStore.selectedProfileID },
-                                                                set: { tenantStore.selectedProfileID = $0 }))
+            role: tenantStore.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })
         ) {
             DemoModeSwitch(session: session)
         }
     }
 
-    /// Sign-in state for the ACTIVE tenant profile (every tenant has its own
+    /// Sign-in state for the tenant in use (every tenant has its own
     /// registration and account).
     @ViewBuilder
     private var accountButton: some View {
@@ -193,6 +195,7 @@ struct ContentView: View {
                 } label: {
                     if auth.signingInProfileIDs.contains(profile.id) {
                         ProgressView().controlSize(.small)
+                            .accessibilityLabel("Signing In")
                     } else {
                         Label("Sign In", systemImage: "person.crop.circle")
                     }
@@ -229,7 +232,7 @@ struct ContentView: View {
 
     // MARK: - Plan helpers
 
-    /// All scanned items across every source — a profile may select items
+    /// All scanned items across every source: a profile may select items
     /// from sources that aren't focused in the sidebar.
     private var allItems: [InferredItem] {
         store.items(for: Set(store.sources.map(\.id)))
@@ -239,8 +242,13 @@ struct ContentView: View {
         guard let profile = tenantStore.selectedProfile else { return false }
         return auth.isSignedIn(profile)
             && !profile.selectedItemIDs.isEmpty
+            && store.scanningSourceIDs.isEmpty
             && !session.isApplying
             && !session.isPlanning
+    }
+
+    private var unshownProblems: [String] {
+        store.problems.filter { !shownProblems.contains($0) }
     }
 
     // MARK: - Selection helpers

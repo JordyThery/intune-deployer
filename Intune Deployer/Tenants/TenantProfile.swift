@@ -97,6 +97,22 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         try container.encodeIfPresent(accountIdentifier, forKey: .accountIdentifier)
     }
 
+    /// A name for a file's default name: "/" and ":" can't be in a file
+    /// name, so they become "-".
+    static func fileNameSafe(_ name: String) -> String {
+        let cleaned = name.map { "/:\\".contains($0) ? "-" : String($0) }.joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Tenant" : cleaned
+    }
+
+    /// Whether any assignment names a group (Remove Baseline may delete
+    /// the ones this profile created).
+    var hasNamedGroups: Bool {
+        (Array(assignments.values) + Array(defaultAssignments.values)).contains { intent in
+            intent.targets.contains { $0.scope == .group && !$0.trimmedGroupName.isEmpty }
+        }
+    }
+
     var hasValidClientID: Bool {
         UUID(uuidString: clientID.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }

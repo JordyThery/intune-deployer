@@ -10,11 +10,15 @@ nonisolated enum GitHubError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .http(let status, let context):
-            "GitHub returned HTTP \(status) for \(context)\(status == 403 ? " — possibly rate-limited, try again later" : "")"
+            switch status {
+            case 401: "GitHub returned HTTP 401 for \(context). The token in Settings › GitHub is invalid or expired."
+            case 403: "GitHub returned HTTP 403 for \(context). The rate limit may be reached: try again later or add a personal access token in Settings › GitHub."
+            default: "GitHub returned HTTP \(status) for \(context)."
+            }
         case .notFound(let what):
             what
         case .extractionFailed(let reason):
-            "Could not extract the downloaded archive: \(reason)"
+            "Couldn’t extract the downloaded archive: \(reason)"
         }
     }
 }
@@ -50,7 +54,7 @@ nonisolated enum GitHubClient {
     /// character would splice extra segments into the API request.
     private static func validated(_ value: String) throws -> String {
         guard !value.isEmpty, value.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#%")) == nil else {
-            throw GitHubError.notFound("“\(value)” is not a valid repository owner or name")
+            throw GitHubError.notFound("“\(value)” isn’t a valid repository owner or name.")
         }
         return value
     }
@@ -104,7 +108,7 @@ nonisolated enum GitHubClient {
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
 
         // Zip needs a .zip extension for ditto; extraction runs inside the
-        // sandbox container (the child process inherits our sandbox).
+        // sandbox container (the child process inherits the app's sandbox).
         let zipURL = parent.appending(path: "\(destination.lastPathComponent).zip")
         try? fileManager.removeItem(at: zipURL)
         try fileManager.moveItem(at: tempFile, to: zipURL)
@@ -210,12 +214,12 @@ nonisolated enum GitHubClient {
             if http.statusCode == 404 {
                 throw GitHubError.notFound(
                     token == nil
-                        ? "\(context) was not found on GitHub. Private repository? Add a personal access token in Settings."
-                        : "\(context) was not found on GitHub — check the name, and that your access token can read this repository."
+                        ? "\(context) was not found on GitHub. If the repository is private, add a personal access token in Settings › GitHub."
+                        : "\(context) was not found on GitHub. Check the name, and that the access token can read this repository."
                 )
             }
             if http.statusCode == 401 {
-                throw GitHubError.http(401, "\(context) — the GitHub token in Settings is invalid or expired")
+                throw GitHubError.http(401, context)
             }
             throw GitHubError.http(http.statusCode, context)
         }

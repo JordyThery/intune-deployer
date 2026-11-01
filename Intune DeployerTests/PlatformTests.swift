@@ -33,7 +33,7 @@ private func tempDir() throws -> URL {
 
 private func makeProfile(_ item: InferredItem, intent: AssignmentIntent? = nil, variables: [String: String] = [:]) -> TenantProfile {
     TenantProfile(
-        displayName: "T", clientID: "e445f0a6-0000-0000-0000-000000000000", tenantID: "t",
+        displayName: "T", clientID: "12345678-0000-4000-8000-0000000000c1", tenantID: "t",
         variables: variables,
         selectedItemIDs: [item.id],
         assignments: intent.map { [item.id: $0] } ?? [:]

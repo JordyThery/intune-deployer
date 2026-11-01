@@ -261,7 +261,7 @@ struct PlanEngineTests {
         let profile = TenantProfile(
             id: Self.scriptProfileID,
             displayName: "Test",
-            clientID: "e445f0a6-0000-0000-0000-000000000000",
+            clientID: "12345678-0000-4000-8000-0000000000c1",
             tenantID: "t",
             namingPrefix: "[CONTOSO]",
             variables: ["OrgName": "Contoso"],
@@ -501,7 +501,7 @@ struct PlanEngineTests {
         let item = makeItem("sc/updates.json", type: .settingsCatalog)
         var profile = TenantProfile(
             displayName: "Test",
-            clientID: "e445f0a6-0000-0000-0000-000000000000",
+            clientID: "12345678-0000-4000-8000-0000000000c1",
             tenantID: "t",
             selectedItemIDs: [item.id],
             assignments: [item.id: intent]
@@ -528,7 +528,7 @@ struct PlanEngineTests {
     @Test func unknownSettingDefinitionsAreErrors() {
         let item = makeItem("sc/gatekeeper.json", type: .settingsCatalog)
         let profile = TenantProfile(
-            displayName: "T", clientID: "e445f0a6-0000-0000-0000-000000000000",
+            displayName: "T", clientID: "12345678-0000-4000-8000-0000000000c1",
             tenantID: "t", selectedItemIDs: [item.id]
         )
         let selected = [PlanInput.SelectedItem(item: item, fileData: Data(Fixtures.settingsCatalogJSON.utf8))]
@@ -555,7 +555,7 @@ struct PlanEngineTests {
         let scriptItem = makeItem("scripts/a.sh", type: .shellScript)
         let complianceItem = makeItem("compliance/c.json", type: .compliancePolicy)
         let profile = TenantProfile(
-            displayName: "T", clientID: "e445f0a6-0000-0000-0000-000000000000", tenantID: "t",
+            displayName: "T", clientID: "12345678-0000-4000-8000-0000000000c1", tenantID: "t",
             selectedItemIDs: [filterItem.id, scriptItem.id, complianceItem.id]
         )
         let plan = PlanEngine.makePlan(input: PlanInput(

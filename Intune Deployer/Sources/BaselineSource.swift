@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where a GitHub baseline source comes from. The user supplies any
-/// owner/repo — the app never preconfigures or suggests repositories.
+/// owner/repo: the app never preconfigures or suggests repositories.
 nonisolated struct GitHubSpec: Codable, Sendable, Hashable {
     var owner: String
     var repo: String
@@ -59,8 +59,8 @@ nonisolated struct BaselineSource: Identifiable, Codable, Sendable, Hashable {
     let id: UUID
     var name: String
     var kind: Kind
-    /// Last resolved content path or repository URL; persisted for
-    /// diagnostics (not currently shown in the UI).
+    /// Last resolved content path or repository URL, kept in `sources.json`
+    /// to tell sources apart when reading the file (not shown in the app).
     var lastKnownPath: String
     /// Sync details for GitHub sources.
     var gitHub: GitHubSyncState?
@@ -78,4 +78,30 @@ nonisolated struct BaselineSource: Identifiable, Codable, Sendable, Hashable {
     }
 
     var isGitHub: Bool { gitHubSpec != nil }
+
+    /// What the user can add again, on this Mac or another: the repository
+    /// and subfolder, or the folder's name. A source added again with the
+    /// same key keeps its identity (`SourceIdentity`), so its items keep
+    /// their IDs and the tenant objects they deployed.
+    var identityKey: String { Self.identityKey(name: name, kind: kind) }
+
+    static func identityKey(name: String, kind: Kind) -> String {
+        switch kind {
+        case .gitHub(let spec):
+            let subfolder = (spec.subfolder ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+            return "github:\(spec.owner)/\(spec.repo)/\(subfolder)".lowercased()
+        case .localFolder:
+            return "folder:\(name)".lowercased()
+        }
+    }
+}
+
+/// A source's identity under its key (`BaselineSource.identityKey`). Item
+/// IDs are made from the source's ID, so a source added again reuses the
+/// identity its key had. The list keeps every identity a key ever had (on
+/// this Mac or in an imported tenant profile), so objects deployed under an
+/// earlier one are still matched.
+nonisolated struct SourceIdentity: Codable, Sendable, Hashable {
+    let key: String
+    let sourceID: UUID
 }

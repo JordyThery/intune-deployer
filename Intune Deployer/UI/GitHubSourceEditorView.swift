@@ -29,7 +29,7 @@ struct GitHubSourceEditorView: View {
                     Text("""
                     The latest published release matching the tag prefix is downloaded \
                     (or the default branch when the repository has no releases) and cached \
-                    locally. The repository's license is shown with its items — review any \
+                    locally. The repository’s license is shown with its items — review any \
                     third-party baseline before deploying it.
                     """)
                     .font(.caption)
@@ -42,6 +42,7 @@ struct GitHubSourceEditorView: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Add") {
                     guard let (owner, repo) = parsed else { return }
                     store.addGitHubSource(GitHubSpec(

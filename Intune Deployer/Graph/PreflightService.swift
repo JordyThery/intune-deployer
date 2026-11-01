@@ -8,6 +8,15 @@ nonisolated struct PreflightCheck: Identifiable, Sendable {
         case warning
         case failed
 
+        /// What VoiceOver says for the row's icon.
+        var accessibilityName: String {
+            switch self {
+            case .ok: "OK"
+            case .warning: "Warning"
+            case .failed: "Failed"
+            }
+        }
+
         var symbolName: String {
             switch self {
             case .ok: "checkmark.circle.fill"
@@ -38,13 +47,13 @@ nonisolated struct PreflightCheck: Identifiable, Sendable {
 /// Read-only preflight checks run before the first plan against a tenant.
 ///
 /// Endpoints verified against Microsoft Learn (Oct 2026):
-/// - GET /v1.0/me ($select) — User.Read
-/// - GET /v1.0/organization — tenant id + display name
-/// - GET /v1.0/organization/{id}?$select=mobileDeviceManagementAuthority —
+/// - GET /v1.0/me ($select): User.Read
+/// - GET /v1.0/organization: tenant id + display name
+/// - GET /v1.0/organization/{id}?$select=mobileDeviceManagementAuthority:
 ///   documented in the Intune organization doc; DeviceManagementServiceConfig.Read.All
-/// - GET /v1.0/deviceManagement/applePushNotificationCertificate —
+/// - GET /v1.0/deviceManagement/applePushNotificationCertificate:
 ///   DeviceManagementServiceConfig.Read.All
-/// - GET /beta/deviceManagement/depOnboardingSettings —
+/// - GET /beta/deviceManagement/depOnboardingSettings:
 ///   DeviceManagementServiceConfig.Read.All
 nonisolated struct PreflightService: Sendable {
     let client: Graph.Client
@@ -94,7 +103,7 @@ nonisolated struct PreflightService: Sendable {
                 id: "account",
                 title: "Signed-in account",
                 status: .failed,
-                message: "Could not read the account or tenant: \(error.localizedDescription)"
+                message: "Couldn’t read the account or tenant: \(error.localizedDescription)"
             ))
         }
 
@@ -113,7 +122,7 @@ nonisolated struct PreflightService: Sendable {
                     status: authority.lowercased() == "intune" ? .ok : .failed,
                     message: authority.lowercased() == "intune"
                         ? "Set to Intune"
-                        : "MDM authority is \u{201C}\(authority)\u{201D} — must be Intune before deploying",
+                        : "MDM authority is \u{201C}\(authority)\u{201D}. It must be Intune before deploying.",
                     guidance: authority.lowercased() == "intune" ? nil
                         : "Set the MDM authority in the Intune admin center (Tenant administration).",
                     link: URL(string: "https://intune.microsoft.com")
@@ -123,7 +132,7 @@ nonisolated struct PreflightService: Sendable {
                     id: "mdmAuthority",
                     title: "MDM authority",
                     status: .warning,
-                    message: "Could not read the MDM authority: \(error.localizedDescription)"
+                    message: "Couldn’t read the MDM authority: \(error.localizedDescription)"
                 ))
             }
         }
@@ -156,9 +165,9 @@ nonisolated struct PreflightService: Sendable {
                     id: "apns",
                     title: "Apple MDM push certificate",
                     status: days > 30 ? .ok : (days > 0 ? .warning : .failed),
-                    message: "\(cert.appleIdentifier ?? "unknown Apple ID") — expires \(expiry.formatted(date: .abbreviated, time: .omitted)) (\(days) days)",
+                    message: "\(cert.appleIdentifier ?? "unknown Apple Account"), expires \(expiry.formatted(date: .abbreviated, time: .omitted)) (\(days) days)",
                     guidance: days > 30 ? nil
-                        : "Renew at identity.apple.com using the SAME Apple ID, then upload in Intune. Renewal is a manual step at Apple.",
+                        : "Renew it at identity.apple.com with the same Apple Account, then upload it in Intune.",
                     link: URL(string: "https://identity.apple.com")
                 ))
             } else {
@@ -166,17 +175,25 @@ nonisolated struct PreflightService: Sendable {
                     id: "apns",
                     title: "Apple MDM push certificate",
                     status: .failed,
-                    message: "Certificate present but no expiry returned (status: \(cert.certificateUploadStatus ?? "unknown"))"
+                    message: "A certificate is present, but Intune returned no expiry (status: \(cert.certificateUploadStatus ?? "unknown"))."
                 ))
             }
-        } catch {
+        } catch let error as Graph.APIError where error.status == 404 {
+            // Only "not found" means there is none.
             checks.append(PreflightCheck(
                 id: "apns",
                 title: "Apple MDM push certificate",
                 status: .failed,
-                message: "No Apple MDM push certificate found — macOS devices cannot enroll",
-                guidance: "Create one in Intune (Tenant administration → Connectors → Apple) with a company Apple ID. This requires manual steps at Apple.",
+                message: "No Apple MDM push certificate found. Apple devices can’t enroll.",
+                guidance: "Create one in the Intune admin center (Tenant administration › Connectors and tokens › Apple MDM Push Certificate) with an organizational Apple Account.",
                 link: URL(string: "https://intune.microsoft.com")
+            ))
+        } catch {
+            checks.append(PreflightCheck(
+                id: "apns",
+                title: "Apple MDM push certificate",
+                status: .warning,
+                message: "Couldn’t read the Apple MDM push certificate: \(error.localizedDescription)"
             ))
         }
 
@@ -192,8 +209,8 @@ nonisolated struct PreflightService: Sendable {
                     id: "ade",
                     title: "ADE enrollment tokens",
                     status: .warning,
-                    message: "No Automated Device Enrollment tokens — fine if devices enroll another way",
-                    guidance: "Connect Apple Business Manager in Intune if you use ADE.",
+                    message: "No Automated Device Enrollment tokens. That’s fine if devices enroll another way.",
+                    guidance: "Connect Apple Business in Intune if you use ADE.",
                     link: URL(string: "https://business.apple.com")
                 ))
             } else {
@@ -207,8 +224,18 @@ nonisolated struct PreflightService: Sendable {
                             status: days > 30 ? .ok : (days > 0 ? .warning : .failed),
                             message: "Expires \(expiry.formatted(date: .abbreviated, time: .omitted)) (\(days) days)",
                             guidance: days > 30 ? nil
-                                : "Renew the token in Apple Business Manager, then upload it in Intune. Renewal is a manual step at Apple.",
+                                : "Renew the token in Apple Business, then upload it in Intune.",
                             link: URL(string: "https://business.apple.com")
+                        ))
+                    } else {
+                        // A token without an expiry can't be checked: say so.
+                        checks.append(PreflightCheck(
+                            id: "ade-\(token.id)",
+                            title: "ADE token \u{201C}\(name)\u{201D}",
+                            status: .warning,
+                            message: "Intune returned no expiry date for this token.",
+                            guidance: "Check the token in the Intune admin center (Tenant administration › Connectors and tokens › Enrollment program tokens).",
+                            link: URL(string: "https://intune.microsoft.com")
                         ))
                     }
                 }
@@ -218,7 +245,7 @@ nonisolated struct PreflightService: Sendable {
                 id: "ade",
                 title: "ADE enrollment tokens",
                 status: .warning,
-                message: "Could not read ADE tokens: \(error.localizedDescription)"
+                message: "Couldn’t read the ADE tokens: \(error.localizedDescription)"
             ))
         }
 

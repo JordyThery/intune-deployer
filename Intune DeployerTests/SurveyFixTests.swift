@@ -121,7 +121,7 @@ struct TenantCheckTests {
         let refused = session(other, tokenTenant: tenantA)
         await refused.apply(profile: planned, plan: plan, deleteOrphanIDs: [], items: [], sourceStore: emptyStore())
         #expect(writes(other).isEmpty)
-        #expect(refused.applyResults?.first?.title == "Check the tenant")
+        #expect(refused.applyResults?.first?.title == "Tenant check")
 
         let same = MockServer { request in
             if request.path.hasSuffix("/organization") { return organization("LAB.example") }

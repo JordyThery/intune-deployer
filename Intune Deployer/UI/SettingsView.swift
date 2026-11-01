@@ -12,8 +12,9 @@ enum SettingsContent {
     }
 
     /// The app's tabs, between General and Updates.
-    @ViewBuilder static func tabs(tenants: TenantStore, auth: AuthManager) -> some View {
-        TenantConnectionsTab(tenants: tenants, auth: auth)
+    @ViewBuilder static func tabs(tenants: TenantStore, auth: AuthManager, sources: SourceStore,
+                                  session: TenantSession) -> some View {
+        TenantConnectionsTab(tenants: tenants, auth: auth, sources: sources, session: session)
         SettingsTab("GitHub", systemImage: "key") {
             GitHubAccessSection()
         }
@@ -49,6 +50,8 @@ struct ItemEditingSection: View {
 struct TenantConnectionsTab: View {
     let tenants: TenantStore
     let auth: AuthManager
+    let sources: SourceStore
+    let session: TenantSession
 
     var body: some View {
         ConnectionsSettingsTab(
@@ -56,25 +59,24 @@ struct TenantConnectionsTab: View {
             services: [.intune],
             allowsChangingService: false,
             signInMethods: [.intune: [.microsoftInteractive]],
-            roles: [tenants.connectionRole(selection: Binding(get: { tenants.selectedProfileID },
-                                                              set: { tenants.selectedProfileID = $0 }))],
+            roles: [tenants.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })],
             height: 600,
             footer: """
-            Tenant ID: Entra admin center → Overview. Client ID: the Application (client) ID of \
+            Tenant ID: Entra admin center › Overview. Client ID: the Application (client) ID of \
             the app registration an admin creates in that tenant. Naming prefix, default \
             assignments and variables are set in the main window: select the tenant in the \
             sidebar, then Baseline Settings….
             """,
             newRecord: { _ in TenantProfile(displayName: "New tenant") },
-            importer: tenants.makeImport(),
-            deleteMessage: "Its item selection, variables and assignments are removed, and the tenant's account is signed out. Objects in the tenant are not affected.",
+            importer: tenants.makeImport(adopt: sources.adopt),
+            deleteMessage: "Its item selection, variables and assignments are removed, and the tenant’s account is signed out. Objects in the tenant are not affected.",
             didDelete: { profile in
                 tenants.didDelete(profile)
                 Task { await auth.signOut(profile: profile) }
             }
         ) { $profile in
             AppRegistrationSection()
-            TenantExportSection(saved: tenants.connections.record(id: profile.id))
+            TenantExportSection(saved: tenants.connections.record(id: profile.id), sources: sources)
         }
     }
 }
@@ -82,12 +84,14 @@ struct TenantConnectionsTab: View {
 /// Saves a tenant profile as a file to import on another Mac.
 private struct TenantExportSection: View {
     let saved: TenantProfile?
+    let sources: SourceStore
     @State private var exportDocument: TextExportDocument?
 
     var body: some View {
         Section {
             Button("Export Tenant Profile…") {
-                exportDocument = (try? saved?.exportText()).map { TextExportDocument(text: $0) }
+                exportDocument = (try? saved?.exportText(sourceIdentities: sources.currentIdentities))
+                    .map { TextExportDocument(text: $0) }
             }
             .disabled(saved == nil)
             .fileExporter(
@@ -97,12 +101,12 @@ private struct TenantExportSection: View {
                 ),
                 document: exportDocument,
                 contentType: .json,
-                defaultFilename: "\(saved?.displayName ?? "Tenant").intune-deployer-profile.json"
+                defaultFilename: "\(TenantProfile.fileNameSafe(saved?.displayName ?? "Tenant")).intune-deployer-profile.json"
             ) { _ in
                 exportDocument = nil
             }
         } footer: {
-            Text("The saved profile with its baseline (items, assignments, variables), to import on another Mac with + › Import Tenant Profile…. Sign-in is not included.")
+            Text("The saved profile with its baseline (items, assignments, variables), to import on another Mac with Import Tenant Profile… in the + menu. Add the same sources there: their items keep their identity. Sign-in isn’t included.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -131,7 +135,7 @@ struct AppRegistrationSection: View {
             For each tenant you deploy to, an admin creates an app registration in that \
             Entra tenant: single-tenant, public client, no secret. Add the “iOS/macOS” \
             platform with the bundle ID above so the redirect URI is accepted, then enter \
-            the registration's Application (client) ID and the tenant ID above. See the \
+            the registration’s Application (client) ID and the tenant ID above. See the \
             README for step-by-step instructions.
             """)
             .font(.caption)
@@ -161,15 +165,14 @@ struct GitHubAccessSection: View {
             }
             HStack {
                 Button("Save Token") {
-                    GitHubTokenStore.save(gitHubToken)
-                    tokenStatus = gitHubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "Token removed" : "Token saved to the Keychain"
+                    let saved = GitHubTokenStore.save(gitHubToken)
+                    tokenStatus = GitHubTokenStore.status(saving: gitHubToken, succeeded: saved)
                 }
                 .disabled(isReadOnly)
                 Button("Remove Token") {
-                    GitHubTokenStore.delete()
-                    gitHubToken = ""
-                    tokenStatus = "Token removed"
+                    let removed = GitHubTokenStore.delete()
+                    if removed { gitHubToken = "" }
+                    tokenStatus = GitHubTokenStore.status(saving: "", succeeded: removed)
                 }
                 .disabled(isReadOnly)
                 if let tokenStatus {
@@ -203,7 +206,10 @@ struct GitHubAccessSection: View {
     } tabs: {
         SettingsContent.tabs(tenants: TenantStore(storageURL: FileManager.default.temporaryDirectory
                                  .appending(path: "intune-deployer-preview/tenants.json")),
-                             auth: AuthManager())
+                             auth: AuthManager(),
+                             sources: SourceStore(folder: FileManager.default.temporaryDirectory
+                                 .appending(path: "intune-deployer-preview")),
+                             session: TenantSession(auth: AuthManager(), activityLog: ActivityLog()))
     }
     .environment(UpdateChecker(configuration: UpdateConfiguration(
         owner: "JordyThery",

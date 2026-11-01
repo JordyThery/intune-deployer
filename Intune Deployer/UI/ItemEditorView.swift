@@ -34,7 +34,7 @@ struct ItemEditorView: View {
 
             if let loadError {
                 ContentUnavailableView(
-                    "Cannot Edit",
+                    "Can’t Edit",
                     systemImage: "exclamationmark.triangle",
                     description: Text(loadError)
                 )
@@ -52,7 +52,7 @@ struct ItemEditorView: View {
             Divider()
 
             HStack {
-                Text("The source file is not modified — this edit is deployed instead of it until it is reverted.")
+                Text("The source file isn’t changed. This edit is deployed instead of it until it’s reverted.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -63,7 +63,10 @@ struct ItemEditorView: View {
                         .frame(maxWidth: 320, alignment: .trailing)
                 }
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                // Return types a new line in the editor, so Save is ⌘S.
                 Button("Save") { save() }
+                    .keyboardShortcut("s", modifiers: .command)
                     .buttonStyle(.borderedProminent)
                     .disabled(!isLoaded || loadError != nil || text == initialText)
             }
@@ -77,11 +80,14 @@ struct ItemEditorView: View {
         do {
             let effective = try store.fileContents(of: item)
             guard effective.count <= ItemEditValidation.maxSize else {
-                loadError = "This file is larger than 2 MB — edit it in the source instead."
+                loadError = ItemEditValidation.tooLarge
                 return
             }
-            guard let editable = Self.editableText(from: effective, pathExtension: item.fileURL.pathExtension.lowercased()) else {
-                loadError = "This file could not be read as text."
+            let editable: String
+            switch Self.editableText(from: effective, pathExtension: item.fileURL.pathExtension.lowercased()) {
+            case .success(let text): editable = text
+            case .failure(let error):
+                loadError = error.message
                 return
             }
             // The base for conflict detection is the file as it is right now.
@@ -90,7 +96,7 @@ struct ItemEditorView: View {
             initialText = editable
             isLoaded = true
         } catch {
-            loadError = "Could not load the file: \(error.localizedDescription)"
+            loadError = "Couldn’t load the file: \(error.localizedDescription)"
         }
     }
 
@@ -115,25 +121,81 @@ struct ItemEditorView: View {
         }
     }
 
-    /// The text presented in the editor. Minified JSON is pretty-printed and
-    /// binary mobileconfig plists are converted to XML — the stored edit is
-    /// the readable form, which deploys identically (plans compare parsed
-    /// values, not bytes).
-    nonisolated static func editableText(from data: Data, pathExtension: String) -> String? {
-        if pathExtension == "json",
-           let object = try? JSONSerialization.jsonObject(with: data),
-           let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
-           let text = String(data: pretty, encoding: .utf8) {
-            return text
+    /// The text presented in the editor: the content as it is. JSON on one
+    /// line is indented (keys keep their order, values their spelling);
+    /// nothing else changes. Content that can't be shown as UTF-8 text
+    /// unchanged (a binary profile, another text encoding) isn't edited here.
+    nonisolated static func editableText(from data: Data, pathExtension: String) -> Result<String, EditableTextError> {
+        guard let text = String(data: data, encoding: .utf8) else {
+            if pathExtension == "mobileconfig",
+               (try? PropertyListSerialization.propertyList(from: data, format: nil)) != nil {
+                return .failure(.binaryProfile)
+            }
+            return .failure(.notUTF8)
         }
-        if let text = String(data: data, encoding: .utf8) {
-            return text
+        if pathExtension == "json", !text.trimmingCharacters(in: .whitespacesAndNewlines).contains("\n"),
+           (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return .success(indentedJSON(text))
         }
-        if pathExtension == "mobileconfig",
-           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
-           let xml = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) {
-            return String(data: xml, encoding: .utf8)
+        return .success(text)
+    }
+
+    nonisolated enum EditableTextError: Error, Equatable {
+        case binaryProfile
+        case notUTF8
+
+        var message: String {
+            switch self {
+            case .binaryProfile: "This profile is a binary property list, which can’t be edited as text. Edit the source file instead."
+            case .notUTF8: "This file isn’t UTF-8 text, so editing it here would change its other characters. Edit the source file instead."
+            }
         }
-        return String(data: data, encoding: .isoLatin1)
+    }
+
+    /// Valid JSON with line breaks and two-space indents added between its
+    /// tokens; the tokens themselves are copied as they are.
+    nonisolated static func indentedJSON(_ text: String) -> String {
+        var output = ""
+        var depth = 0
+        var inString = false
+        var escaped = false
+        func newline() { output += "\n" + String(repeating: "  ", count: depth) }
+        let characters = Array(text)
+        for (index, character) in characters.enumerated() {
+            if inString {
+                output.append(character)
+                if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { inString = false }
+                continue
+            }
+            switch character {
+            case "\"":
+                inString = true
+                output.append(character)
+            case "{", "[":
+                output.append(character)
+                // An empty object or array stays on its line.
+                let next = characters[(index + 1)...].first { !$0.isWhitespace }
+                depth += 1
+                if next != "}" && next != "]" { newline() }
+            case "}", "]":
+                depth -= 1
+                if let last = output.last(where: { !$0.isWhitespace }), last != "{" && last != "[" {
+                    newline()
+                } else {
+                    while output.last?.isWhitespace == true { output.removeLast() }
+                }
+                output.append(character)
+            case ",":
+                output.append(character)
+                newline()
+            case ":":
+                output += ": "
+            case " ", "\t", "\n", "\r":
+                break
+            default:
+                output.append(character)
+            }
+        }
+        return output
     }
 }

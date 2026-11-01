@@ -15,7 +15,7 @@ nonisolated struct RemoteObject: Sendable {
 nonisolated enum GroupLookup: Sendable {
     case found(id: String, isDynamic: Bool)
     case missing
-    /// Several groups have this name: which one is meant can't be told (bug 6).
+    /// Several groups have this name: which one is meant can't be told.
     case ambiguous(count: Int)
 }
 
@@ -30,13 +30,32 @@ nonisolated struct PlanInput: Sendable {
         let appInfo: AppPackageInfo?
         /// True when `fileData` is an in-app edit, not the source file.
         let isEdited: Bool
+        /// The package of an app item, as Plan read it.
+        var package: PackageFile?
+        /// Why an app's package couldn't be inspected.
+        var inspectionError: String?
+        /// IDs the item had under its source's earlier identities: tenant
+        /// objects tagged with one are this item's (`SourceStore.earlierIDs`).
+        var earlierIDs: Set<String> = []
 
-        init(item: InferredItem, fileData: Data, appInfo: AppPackageInfo? = nil, isEdited: Bool = false) {
+        /// The item's ID and its earlier ones.
+        var allIDs: Set<String> { earlierIDs.union([item.id]) }
+
+        init(item: InferredItem, fileData: Data, appInfo: AppPackageInfo? = nil, isEdited: Bool = false,
+             package: PackageFile? = nil) {
             self.item = item
             self.fileData = fileData
             self.appInfo = appInfo
             self.isEdited = isEdited
+            self.package = package
         }
+    }
+
+    /// An app package's size and SHA-256 at Plan time: Apply uploads only
+    /// this file, and Plan compares its size with the tenant's.
+    struct PackageFile: Sendable, Hashable {
+        let size: Int
+        let hash: String
     }
 
     let selectedItems: [SelectedItem]
@@ -52,6 +71,27 @@ nonisolated struct PlanInput: Sendable {
     /// read at plan time; an object missing here couldn't be read, and its
     /// assignments are sent again.
     var existingAssignments: [String: Set<AssignmentEntry>] = [:]
+    /// The files of each tagged app's committed content version, by object
+    /// ID (lowercased); an app missing here couldn't be read and isn't checked.
+    var committedFiles: [String: [CommittedFile]] = [:]
+}
+
+/// A file of an app's committed content version, as Graph returns it.
+nonisolated struct CommittedFile: Sendable, Hashable {
+    let name: String?
+    /// The package's size before encryption; nil when Graph gives none.
+    let size: Int?
+
+    init(name: String?, size: Int?) {
+        self.name = name
+        self.size = size
+    }
+
+    init?(graph body: Data) {
+        guard let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        name = dict["name"] as? String
+        size = ((dict["sizeInBytes"] ?? dict["size"]) as? NSNumber)?.intValue
+    }
 }
 
 nonisolated extension TenantCollection {
@@ -83,6 +123,9 @@ nonisolated enum PlanEngine {
         // exist and apply can look them up by the exact created name.
         var pendingFilterNames: [String: (name: String, platform: ItemPlatform)] = [:]
         var builtPayloads: [(PlanInput.SelectedItem, PayloadBuilder.Built)] = []
+        // Selected items whose payload couldn't be built (a plan error): their
+        // tenant objects are still wanted, so they are never orphans.
+        var failedItemIDs: Set<String> = []
 
         for selected in input.selectedItems {
             do {
@@ -99,17 +142,19 @@ nonisolated enum PlanEngine {
                 }
                 builtPayloads.append((selected, built))
             } catch {
+                failedItemIDs.formUnion(selected.allIDs)
+                let detail = selected.inspectionError.map { " (\($0))" } ?? ""
                 plan.issues.append(PlanIssue(
                     severity: .error,
                     itemName: selected.item.displayName,
-                    message: error.localizedDescription
+                    message: error.localizedDescription + detail
                 ))
             }
         }
 
         let existingFilters = input.existingObjects[.assignmentFilters] ?? []
         // Tenant objects matched by a selected item; everything else that
-        // carries our tag is an orphan.
+        // carries the app's tag is an orphan.
         var matchedObjectIDs: Set<String> = []
 
         for (selected, built) in builtPayloads {
@@ -117,7 +162,7 @@ nonisolated enum PlanEngine {
             let item = selected.item
 
             if selected.isEdited {
-                warnings.append("Content was edited in the app — it differs from the source file")
+                warnings.append("Content was edited in the app. It differs from the source file.")
             }
 
             // Settings Catalog: validate settingDefinitionIds against the tenant.
@@ -137,7 +182,7 @@ nonisolated enum PlanEngine {
                 for index in intent.targets.indices
                 where intent.targets[index].kind == .include
                     && !intent.targets[index].filterName.trimmingCharacters(in: .whitespaces).isEmpty {
-                    warnings.append("Intune does not support assignment filters on \(item.type.displayName.lowercased())s — filter “\(intent.targets[index].filterName)” is ignored")
+                    warnings.append("Intune doesn’t support assignment filters on \(item.type.displayName.lowercased())s, so filter “\(intent.targets[index].filterName)” is ignored.")
                     intent.targets[index].filterName = ""
                 }
             }
@@ -160,14 +205,18 @@ nonisolated enum PlanEngine {
             // macOSCustomConfiguration → iosCustomConfiguration) must become
             // a create, with the old object orphaned.
             let desiredType = Self.odataType(of: built.body)
+            // Objects tagged with the item's ID come first; then those of
+            // its earlier identities, which the update tags with the new one.
+            let allIDs = selected.allIDs
             let matches = (input.existingObjects[built.collection] ?? [])
-                .filter { $0.taggedShortID == item.id }
+                .filter { $0.taggedShortID.map(allIDs.contains) == true }
+                .sorted { ($0.taggedShortID == item.id ? 0 : 1) < ($1.taggedShortID == item.id ? 0 : 1) }
                 .filter { candidate in
                     guard let desiredType, let remoteType = Self.odataType(of: candidate.body) else { return true }
                     return desiredType == remoteType
                 }
             if matches.count > 1 {
-                warnings.append("Multiple tenant objects carry this item's identity tag (was one duplicated in the portal?) — only “\(matches[0].displayName)” is managed")
+                warnings.append("Several tenant objects carry this item’s identity tag; only “\(matches[0].displayName)” is managed. Remove the duplicates in the Intune admin center.")
             }
             let existing = matches.first
             if let existing {
@@ -208,25 +257,40 @@ nonisolated enum PlanEngine {
                     }
                 } catch {
                     // Never treat an uncomparable object as unchanged.
-                    warnings.append("Could not compare with the tenant object — it will be updated")
+                    warnings.append("Couldn’t compare with the tenant object, so it’s updated.")
                     kind = .update([FieldChange(path: "(comparison failed)", oldValue: "tenant state", newValue: "desired state")])
                 }
             } else {
                 kind = .create
             }
 
-            // An app whose content never arrived (the upload failed after the
-            // create) has no committed content version: upload it again (bug 4).
-            if built.collection == .apps, let existing, !Self.hasCommittedContent(existing) {
-                let missing = FieldChange(path: Self.missingContentPath, oldValue: "no content", newValue: "upload the package")
-                switch kind {
-                case .update(let changes): kind = .update(changes + [missing])
-                default: kind = .update([missing])
+            // An app whose content never arrived has no committed content
+            // version, or one whose files aren't this package (an upload
+            // that failed after the app was created or its version written):
+            // upload it again.
+            if built.collection == .apps, let existing, !Self.uploadsPackage(kind) {
+                var problem: String?
+                if Self.committedContentVersion(of: existing) == nil {
+                    problem = "The app in the tenant has no uploaded content."
+                } else if let files = input.committedFiles[existing.id.lowercased()], let package = selected.package,
+                          !Self.contains(files, package: package) {
+                    problem = "The package in the tenant isn’t this file; its upload may not have arrived."
                 }
-                warnings.append("The app in the tenant has no uploaded content — the package is uploaded again")
+                if let problem {
+                    let missing = FieldChange(path: Self.missingContentPath, oldValue: "no content", newValue: "upload the package")
+                    switch kind {
+                    case .update(let changes): kind = .update(changes + [missing])
+                    default: kind = .update([missing])
+                    }
+                    warnings.append("\(problem) Apply uploads the package again.")
+                }
+            }
+            if built.collection == .apps, Self.uploadsPackage(kind), let package = selected.package {
+                let size = Int64(package.size).formatted(.byteCount(style: .file))
+                warnings.append("Apply uploads the package (\(size)).")
             }
 
-            // Assignments already exactly as intended: Apply sends none (bug 1).
+            // Assignments already exactly as intended: Apply sends none.
             var assignmentsUpToDate = false
             if let existing, let assignments,
                let desired = AssignmentEntry.desired(assignments, collection: built.collection),
@@ -244,7 +308,8 @@ nonisolated enum PlanEngine {
                 assignments: assignments,
                 settingChanges: settingChanges,
                 warnings: warnings,
-                assignmentsUpToDate: assignmentsUpToDate
+                assignmentsUpToDate: assignmentsUpToDate,
+                package: built.collection == .apps ? selected.package : nil
             ))
         }
 
@@ -256,14 +321,16 @@ nonisolated enum PlanEngine {
             .map { PlannedFilterCreation(name: $0.key, rule: $0.value.rule, platform: $0.value.platform) }
             .sorted { $0.name < $1.name }
 
-        // Orphans: objects tagged by us that no selected item matched — the
-        // item was deselected, deploys to another collection, or changed its
-        // Graph type (platform change). Untagged objects are never considered,
-        // and only this profile's objects are (bug 2): another profile's
-        // objects in the same tenant are not its orphans.
+        // Orphans: objects with the app's tag that no selected item matched:
+        // the item was deselected, deploys to another collection, or changed
+        // its Graph type (platform change). Untagged objects are never
+        // considered, and only this profile's objects are: another profile's
+        // objects in the same tenant are not its orphans. An item that failed
+        // to build keeps its objects.
         for (collection, objects) in input.existingObjects {
             for object in objects {
                 if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id),
+                   !failedItemIDs.contains(shortID),
                    ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: input.profile) {
                     plan.orphans.append(OrphanedObject(
                         collection: collection,
@@ -283,15 +350,37 @@ nonisolated enum PlanEngine {
     /// The change that makes Apply upload an app's package again.
     static let missingContentPath = "committedContentVersion"
 
-    /// Whether a tenant app has committed (uploaded) content.
-    private static func hasCommittedContent(_ object: RemoteObject) -> Bool {
+    /// Changes of an app that mean new binary content: a bundle version,
+    /// build number, file name or provisioning expiry (an .ipa re-signed in
+    /// place), or content that never arrived.
+    static let uploadPaths: Set<String> = ["primaryBundleVersion", "versionNumber", "buildNumber", "fileName",
+                                           "expirationDateTime", missingContentPath]
+
+    /// Whether Apply uploads an app's package for this action kind.
+    static func uploadsPackage(_ kind: PlanActionKind) -> Bool {
+        switch kind {
+        case .create: true
+        case .update(let changes): changes.contains { uploadPaths.contains($0.path) }
+        case .unchanged: false
+        }
+    }
+
+    /// A tenant app's committed content version, nil when none was committed.
+    static func committedContentVersion(of object: RemoteObject) -> String? {
         let dict = try? JSONSerialization.jsonObject(with: object.body) as? [String: Any]
-        guard let version = dict?["committedContentVersion"] as? String else { return false }
-        return !version.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let version = (dict?["committedContentVersion"] as? String)?.trimmingCharacters(in: .whitespaces),
+              !version.isEmpty else { return nil }
+        return version
+    }
+
+    /// Whether the committed files hold this package. A file without a size
+    /// can't be checked and counts as holding it.
+    private static func contains(_ files: [CommittedFile], package: PlanInput.PackageFile) -> Bool {
+        files.contains { $0.size == nil || $0.size == package.size }
     }
 
     /// Fields the service rewrites or returns inconsistently, excluded from
-    /// change detection (verified against live tenant behaviour):
+    /// change detection (verified against live tenant behavior):
     /// - custom attributes: name/type are immutable and often returned null
     /// - compliance: the service stores rule names as null
     static func diffIgnoredKeys(for collection: TenantCollection) -> Set<String> {
@@ -337,10 +426,10 @@ nonisolated enum PlanEngine {
         }
         let includeScopes = Set(intent.targets.filter { $0.kind == .include }.map(\.scope))
         if includeScopes.contains(.allDevices), includeScopes.contains(.allUsers) {
-            warnings.append("Included for both All devices and All users — usually only one is intended")
+            warnings.append("Included for both All devices and All users. Usually only one is intended.")
         }
         if includeScopes.isEmpty {
-            warnings.append("Only exclusions are set — Apply removes the item's existing included targets")
+            warnings.append("Only exclusions are set. Apply removes the item’s existing included targets.")
         }
 
         var resolved: [ResolvedAssignment] = []
@@ -423,11 +512,11 @@ nonisolated enum PlanEngine {
                 issues.append(PlanIssue(
                     severity: .error,
                     itemName: itemName,
-                    message: "“Available in Company Portal” requires a user assignment — choose All users or a user group"
+                    message: "“Available in Company Portal” requires a user assignment. Choose All users or a user group."
                 ))
                 return nil
             case .group:
-                warnings.append("“Available in Company Portal” only works for user groups — devices in “\(spec.trimmedGroupName)” would not see the app")
+                warnings.append("“Available in Company Portal” only works for user groups. Devices in “\(spec.trimmedGroupName)” wouldn’t see the app.")
             case .allUsers:
                 break
             }
@@ -448,14 +537,14 @@ nonisolated enum PlanEngine {
             switch input.groups[name] {
             case .found(let id, let isDynamic):
                 if isDynamic, !isExclusion {
-                    warnings.append("“\(name)” is a dynamic group — delivery of enrollment-critical policies may be delayed past Await Configuration")
+                    warnings.append("“\(name)” is a dynamic group. Delivery of enrollment-critical policies may be delayed past Await Configuration.")
                 }
                 target = .group(id: id, name: name)
             case .ambiguous(let count):
                 issues.append(PlanIssue(
                     severity: .error,
                     itemName: itemName,
-                    message: "\(count) groups are named “\(name)”, so which one is meant can't be told. Rename them so the name is unique."
+                    message: "\(count) groups are named “\(name)”. Rename them so that one name is unique, then run Plan again."
                 ))
                 return nil
             case .missing, nil:
@@ -479,13 +568,13 @@ nonisolated enum PlanEngine {
         let filterName = isExclusion ? "" : spec.filterName.trimmingCharacters(in: .whitespaces)
         if !filterName.isEmpty {
             // nil = the tenant's filter names no platform: it can't be checked,
-            // so it isn't assigned (bug 10; before, the check was skipped).
+            // so it isn't assigned.
             func requirePlatform(_ filterPlatformValue: String?) -> Bool {
                 guard let filterPlatformValue else {
                     issues.append(PlanIssue(
                         severity: .error,
                         itemName: itemName,
-                        message: "Filter “\(filterName)” has no platform in the tenant, so it can't be checked against \(itemPlatform.displayName) items. Check the filter in the Intune portal."
+                        message: "Filter “\(filterName)” has no platform in the tenant, so it can’t be matched to \(itemPlatform.displayName) items. Check the filter in the Intune admin center."
                     ))
                     return false
                 }
@@ -495,7 +584,7 @@ nonisolated enum PlanEngine {
                 issues.append(PlanIssue(
                     severity: .error,
                     itemName: itemName,
-                    message: "Filter “\(filterName)” targets \(filterPlatformValue) devices and cannot be assigned to \(itemPlatform.displayName) items"
+                    message: "Filter “\(filterName)” targets \(filterPlatformValue) devices and can’t be assigned to \(itemPlatform.displayName) items"
                 ))
                 return false
             }
@@ -521,7 +610,7 @@ nonisolated enum PlanEngine {
                     issues.append(PlanIssue(
                         severity: .error,
                         itemName: itemName,
-                        message: "The built-in ADE filter needs the \(BuiltInFilterTemplate.requiredToken) variable — set it in the tenant profile"
+                        message: "The built-in ADE filter needs the \(BuiltInFilterTemplate.requiredToken) variable. Set it in the tenant profile."
                     ))
                 }
             } else {
@@ -568,7 +657,7 @@ nonisolated enum PlanEngine {
         let used = settingDefinitionIDs(in: body)
         guard !used.isEmpty else { return }
         guard let known else {
-            warnings.append("Could not fetch the tenant's setting catalog — settingDefinitionIds not validated")
+            warnings.append("Couldn’t read the tenant’s Settings Catalog, so the setting IDs aren’t checked.")
             return
         }
         let unknown = used.subtracting(known).sorted()

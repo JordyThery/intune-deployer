@@ -31,7 +31,7 @@ struct TenantDetailView: View {
 
                 GroupBox("Profile") {
                     VStack(alignment: .leading, spacing: 6) {
-                        LabeledContent("Client ID", value: profile.hasValidClientID ? profile.clientID : "missing — add it in Settings › Connections")
+                        LabeledContent("Client ID", value: profile.hasValidClientID ? profile.clientID : "Missing. Add it in Settings › Connections.")
                         LabeledContent("Account", value: auth.account(for: profile)?.username ?? "not signed in")
                         LabeledContent("Naming prefix", value: profile.namingPrefix.isEmpty ? "none" : profile.namingPrefix)
                         LabeledContent("Variables", value: "\(profile.variables.count)")
@@ -48,6 +48,7 @@ struct TenantDetailView: View {
                                 HStack(spacing: 8) {
                                     Image(systemName: check.status.symbolName)
                                         .foregroundStyle(check.status == .ok ? .green : check.status == .warning ? .yellow : .red)
+                                        .accessibilityLabel(check.status.accessibilityName)
                                     Text(check.title)
                                     Spacer()
                                 }

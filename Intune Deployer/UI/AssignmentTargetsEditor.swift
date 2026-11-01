@@ -46,7 +46,7 @@ struct AssignmentTargetsEditor: View {
 
                 Picker("Target", selection: binding(index, \.scope)) {
                     ForEach(AssignmentTarget.Scope.allCases, id: \.self) { scope in
-                        Text(scope.displayName).tag(scope)
+                        Text(scope.menuTitle).tag(scope)
                     }
                 }
                 .labelsHidden()
@@ -76,8 +76,8 @@ struct AssignmentTargetsEditor: View {
                     HStack {
                         TextField("Filter name", text: binding(index, \.filterName), prompt: Text("Assignment filter (optional)"))
                         Picker("Filter mode", selection: binding(index, \.filterMode)) {
-                            Text("Include filter").tag(AssignmentIntent.FilterMode.include)
-                            Text("Exclude filter").tag(AssignmentIntent.FilterMode.exclude)
+                            Text("Include Filter").tag(AssignmentIntent.FilterMode.include)
+                            Text("Exclude Filter").tag(AssignmentIntent.FilterMode.exclude)
                         }
                         .labelsHidden()
                         .fixedSize()

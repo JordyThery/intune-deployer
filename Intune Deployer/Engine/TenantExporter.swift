@@ -62,7 +62,7 @@ nonisolated enum TenantExporter {
                 return .skipped(name: name, reason: "Not a macOS or iOS/iPadOS policy (\(dict["platforms"] as? String ?? "no platform"))")
             }
             guard dict["settings"] is [Any] else {
-                return .skipped(name: name, reason: "The policy's settings could not be read")
+                return .skipped(name: name, reason: "The policy’s settings couldn’t be read")
             }
             var cleaned = cleanedJSON(dict, nameKey: "name", name: name)
             cleaned["displayName"] = nil
@@ -92,7 +92,7 @@ nonisolated enum TenantExporter {
         case .shellScripts, .customAttributes:
             guard let content = (dict["scriptContent"] as? String).flatMap({ Data(base64Encoded: $0) }),
                   let text = String(data: content, encoding: .utf8) ?? String(data: content, encoding: .isoLatin1) else {
-                return .skipped(name: name, reason: "The script content could not be read")
+                return .skipped(name: name, reason: "The script content couldn’t be read")
             }
             let directive = collection == .customAttributes
                 ? customAttributeDirective(dict)
@@ -135,13 +135,10 @@ nonisolated enum TenantExporter {
         return String(name.dropFirst(trimmedPrefix.count + 1))
     }
 
-    /// Removes the identity tag and the placeholder text written for empty
-    /// descriptions; nil when nothing else remains.
+    /// Removes the identity and profile tags and the placeholder text
+    /// written for empty descriptions; nil when nothing else remains.
     static func cleanedDescription(_ description: String?) -> String? {
-        let text = (description ?? "")
-            .replacing(/\s*\[(?:IntuneDeployer|gw):[0-9a-f]{8}\]/, with: "")
-            .replacingOccurrences(of: "Managed by Intune Deployer", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ItemIdentity.strippingTags(from: description)
         return text.isEmpty ? nil : text
     }
 
@@ -163,7 +160,7 @@ nonisolated enum TenantExporter {
             withJSONObject: dict,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         ) else {
-            return .skipped(name: name, reason: "The object could not be encoded as JSON")
+            return .skipped(name: name, reason: "The object couldn’t be encoded as JSON")
         }
         return .file(ExportFile(folder: folder(for: collection, platform: platform), baseName: name, fileExtension: "json", contents: data))
     }

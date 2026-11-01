@@ -62,7 +62,7 @@ struct ItemDetailView: View {
             Button("Revert", role: .destructive) { revertEdit() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The in-app edit is discarded; the file's content deploys again. Objects already in a tenant are not changed until the next Apply.")
+            Text("The in-app edit is discarded; the file’s content deploys again. Objects already in a tenant are not changed until the next Apply.")
         }
     }
 
@@ -103,9 +103,12 @@ struct ItemDetailView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let edit = currentEdit {
                     if edit.hasConflict {
-                        Label("The source file changed since this edit. The edit still deploys; compare using the Original preview below.",
-                              systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                        Label {
+                            Text("The source file changed since this edit. The edit still deploys; compare using the Original preview below.")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .symbolRenderingMode(.multicolor)
+                        }
                     }
                     LabeledContent("Last edited", value: edit.modified.formatted(date: .abbreviated, time: .shortened))
                         .font(.callout)
@@ -116,7 +119,7 @@ struct ItemDetailView: View {
                         if edit.hasConflict {
                             Button("Keep My Edit") { keepDespiteConflict() }
                                 .help("Accepts the new source content as the comparison base; the edit keeps deploying")
-                            Button("Use Source Version", role: .destructive) { confirmingRevert = true }
+                            Button("Use Source Version…", role: .destructive) { confirmingRevert = true }
                         } else {
                             Button("Revert to Source…", role: .destructive) { confirmingRevert = true }
                         }
@@ -237,7 +240,7 @@ struct ItemDetailView: View {
                 }
                 LabeledContent("License", value: source.gitHub?.licenseSPDX
                     ?? source.gitHub?.licenseName
-                    ?? "unknown — check the repository")
+                    ?? "Unknown. Check the repository.")
                 Text("Review third-party baseline content before deploying it to production.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -293,25 +296,21 @@ struct ItemDetailView: View {
                 : try store.fileContents(of: item)
             previewText = Self.formatted(data: data, pathExtension: item.fileURL.pathExtension.lowercased())
         } catch {
-            previewError = "Could not load preview: \(error.localizedDescription)"
+            previewError = "Couldn’t load the preview: \(error.localizedDescription)"
         }
     }
 
-    private static let previewCharacterLimit = 200_000
+    nonisolated private static let previewCharacterLimit = 200_000
 
-    /// Pretty-prints JSON and plists; shows scripts and anything else as-is.
+    /// Indents one-line JSON and shows binary profiles as XML; scripts and
+    /// anything else as they are.
     nonisolated private static func formatted(data: Data, pathExtension: String) -> String {
         var text: String
         switch pathExtension {
         case "json":
-            // Same formatting as the editor, so Preview and Edit never differ.
-            if let object = try? JSONSerialization.jsonObject(with: data),
-               let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
-               let string = String(data: pretty, encoding: .utf8) {
-                text = string
-            } else {
-                text = String(data: data, encoding: .utf8) ?? "(binary data)"
-            }
+            // Same text as the editor, so Preview and Edit never differ.
+            text = (try? ItemEditorView.editableText(from: data, pathExtension: "json").get())
+                ?? String(data: data, encoding: .utf8) ?? "(binary data)"
         case "mobileconfig":
             if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
                let xml = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0),

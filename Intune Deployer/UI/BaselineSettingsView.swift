@@ -36,7 +36,7 @@ struct BaselineSettingsView: View {
                 } header: {
                     Text("Baseline for \(profile.displayName)")
                 } footer: {
-                    Text("The tenant's name, tenant ID and client ID are in Settings › Connections.")
+                    Text("The tenant’s name, tenant ID and client ID are in Settings › Connections.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -48,7 +48,7 @@ struct BaselineSettingsView: View {
                 } header: {
                     Text("Default Assignments")
                 } footer: {
-                    Text("Applied at plan time to selected items that have no assignment of their own. An item's assignment editor can override a default or switch back to it.")
+                    Text("Applied at plan time to selected items that have no assignment of their own. An item’s assignment editor can override a default or switch back to it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -67,6 +67,8 @@ struct BaselineSettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove this variable")
+                            .accessibilityLabel("Remove \(key)")
                         }
                     }
                     HStack {
@@ -94,6 +96,7 @@ struct BaselineSettingsView: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     tenantStore.update(baselineToSave)
                     dismiss()
@@ -105,16 +108,16 @@ struct BaselineSettingsView: View {
         .frame(width: 520, height: 560)
     }
 
-    /// The sheet's baseline on top of the profile as saved now: items ticked
-    /// or a sign-in while the sheet was open are kept.
     /// Why this prefix needs care, when another profile uses it too.
     private var prefixSharingNote: String? {
         let others = tenantStore.profiles(sharingPrefix: profile.namingPrefix, besides: profile.id)
         guard !others.isEmpty else { return nil }
         let names = others.map { "“\($0.displayName)”" }.formatted(.list(type: .and))
-        return "\(names) \(others.count == 1 ? "uses" : "use") this prefix too. Older objects are matched by prefix, so both profiles could delete them. Use a prefix of its own."
+        return "\(names) \(others.count == 1 ? "uses" : "use") this prefix too. Objects deployed before profile tags are matched by prefix, so either profile could delete them. Give each profile its own prefix."
     }
 
+    /// The sheet's baseline on top of the profile as saved now: items ticked
+    /// or a sign-in while the sheet was open are kept.
     private var baselineToSave: TenantProfile {
         guard var current = tenantStore.profile(id: profile.id) else { return profile }
         current.namingPrefix = profile.namingPrefix
@@ -158,7 +161,8 @@ struct BaselineSettingsView: View {
         Binding(
             get: { profile.defaultAssignments[type] != nil },
             set: { enabled in
-                profile.defaultAssignments[type] = enabled ? .single(.allDevices) : nil
+                // A group still to be named: All devices is never the default.
+                profile.defaultAssignments[type] = enabled ? .single(.group) : nil
             }
         )
     }

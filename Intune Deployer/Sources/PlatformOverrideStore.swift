@@ -6,28 +6,29 @@ import OSLog
 /// (`.mobileconfig` profiles). JSON files and app packages carry their
 /// platform in the content and are never overridden.
 nonisolated struct PlatformOverride: Codable, Sendable, Hashable {
-    /// Item identity short ID — unchanged by the override.
+    /// Item identity short ID, unchanged by the override.
     let itemID: String
     let sourceID: UUID
     let relativePath: String
     var platform: ItemPlatform
 }
 
-/// App-wide store of platform overrides, persisted in Application Support —
+/// App-wide store of platform overrides, persisted in Application Support:
 /// the same model as in-app item edits, so overrides survive source syncs.
 @MainActor
 @Observable
 final class PlatformOverrideStore {
-    private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "PlatformOverrides")
-
     private(set) var overrides: [String: PlatformOverride] = [:]
-    private let storageURL: URL
+    private let file: SavedList<PlatformOverride>
+
+    /// Why platform choices aren't saved (the file couldn't be read); nil when fine.
+    var problem: String? { file.problem }
 
     init(storageURL: URL? = nil) {
         // Application Support/Intune Deployer; under the unit tests a temporary folder.
         let base = UnderTest.dataFolder
-        self.storageURL = storageURL ?? base.appendingPathComponent("platform-overrides.json")
-        load()
+        file = SavedList(fileURL: storageURL ?? base.appendingPathComponent("platform-overrides.json"), name: "platform choices")
+        overrides = Dictionary(file.load().map { ($0.itemID, $0) }, uniquingKeysWith: { _, newer in newer })
     }
 
     /// Platform overrides per relative path for one source — applied by the
@@ -76,27 +77,7 @@ final class PlatformOverrideStore {
 
     // MARK: - Persistence
 
-    private func load() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        do {
-            let list = try JSONDecoder().decode([PlatformOverride].self, from: data)
-            overrides = Dictionary(list.map { ($0.itemID, $0) }, uniquingKeysWith: { _, newer in newer })
-        } catch {
-            Self.logger.error("Failed to decode platform-overrides.json: \(error.localizedDescription)")
-        }
-    }
-
     private func persist() {
-        do {
-            try FileManager.default.createDirectory(
-                at: storageURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(overrides.values.sorted { $0.itemID < $1.itemID }).write(to: storageURL, options: .atomic)
-        } catch {
-            Self.logger.error("Failed to save platform-overrides.json: \(error.localizedDescription)")
-        }
+        file.save(overrides.values.sorted { $0.itemID < $1.itemID })
     }
 }

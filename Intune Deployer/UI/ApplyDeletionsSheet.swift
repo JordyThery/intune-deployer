@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Apply with two or more ticked deletions: the number of deletions is typed
-/// before anything is written (ROADMAP step 8, decided by Jordy).
+/// before anything is written (JTKit's rule for what can't be undone).
 struct ApplyDeletionsSheet: View {
     @Environment(\.dismiss) private var dismiss
 

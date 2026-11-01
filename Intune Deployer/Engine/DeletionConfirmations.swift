@@ -5,7 +5,7 @@ import JTKit
 /// sheet shows it, kept here so tests can check it.
 nonisolated enum ApplyConfirmation {
     /// From two ticked deletions, the number of deletions is typed before
-    /// Apply: JTKit's rule for what can't be undone (ROADMAP step 8).
+    /// Apply: JTKit's rule for what can't be undone.
     static func typedCount(deletions: Int) -> Int? {
         deletionRule(deletions).typedCount
     }
@@ -69,7 +69,7 @@ nonisolated enum RemoveBaselineConfirmation {
     /// The count, shown before anything is typed.
     static func countLine(_ count: Int) -> String {
         switch count {
-        case 0: "This app has no tagged objects in this tenant: there is nothing to delete."
+        case 0: "This tenant profile has no objects in the tenant. There is nothing to delete."
         case 1: "1 object will be deleted."
         default: "\(count) objects will be deleted."
         }

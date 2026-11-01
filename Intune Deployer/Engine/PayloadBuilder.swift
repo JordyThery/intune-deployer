@@ -8,7 +8,7 @@ nonisolated enum PayloadError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unreadableFile(let name): "Could not read \(name)"
+        case .unreadableFile(let name): "Couldn’t read \(name)"
         case .invalidJSON(let name): "\(name) is not valid JSON after variable substitution"
         case .unresolvedTokens(let tokens): "Unresolved variables: \(tokens.joined(separator: ", "))"
         case .unsupportedItem(let reason): reason
@@ -37,7 +37,7 @@ nonisolated enum PayloadBuilder {
         "settingCount", "isAssigned", "creationSource", "priorityMetaData",
         "supportsScopeTags", "assignments", "groupAssignments", "payloads",
         "deviceStatuses", "userStatuses", "deviceStatusOverview",
-        "userStatusOverview", "deviceSettingStateSummaries", "scheduledActionConfigurations",
+        "userStatusOverview", "deviceSettingStateSummaries",
         "deviceRunStates", "runSummary", "assignmentFilterManagementType",
         "@odata.context", "lastSyncDateTime",
     ]
@@ -59,7 +59,7 @@ nonisolated enum PayloadBuilder {
 
         let isMobileconfig = item.fileURL.pathExtension.lowercased() == "mobileconfig"
 
-        // Normalise to text. Binary mobileconfig plists are converted to XML
+        // Normalize to text. Binary mobileconfig plists are converted to XML
         // first so they survive substitution and base64 encoding intact.
         let rawText: String
         if isMobileconfig {
@@ -115,7 +115,7 @@ nonisolated enum PayloadBuilder {
     /// object.
     static func buildApp(item: InferredItem, appInfo: AppPackageInfo?, prefix: String, tag: String) throws -> Built {
         guard let appInfo else {
-            throw PayloadError.unsupportedItem("Could not read bundle ID/version from \(item.fileURL.lastPathComponent)")
+            throw PayloadError.unsupportedItem("Couldn’t read bundle ID/version from \(item.fileURL.lastPathComponent)")
         }
         if item.fileURL.pathExtension.lowercased() == "ipa" {
             return try buildIOSApp(item: item, appInfo: appInfo, prefix: prefix, tag: tag)
@@ -132,7 +132,7 @@ nonisolated enum PayloadBuilder {
             includedApps = Array(includedApps.prefix(500))
             warnings.append("Package lists more than 500 bundles; truncated (Graph limit)")
         }
-        warnings.append("Publisher defaults to the app name — edit it in Intune if needed")
+        warnings.append("Publisher defaults to the app name. Edit it in the Intune admin center if needed.")
 
         let dict: [String: Any] = [
             "@odata.type": isPkg ? "#microsoft.graph.macOSPkgApp" : "#microsoft.graph.macOSDmgApp",
@@ -161,12 +161,12 @@ nonisolated enum PayloadBuilder {
     /// profile's expiration date; an unsigned .ipa cannot be deployed.
     static func buildIOSApp(item: InferredItem, appInfo: AppPackageInfo, prefix: String, tag: String) throws -> Built {
         guard let expiration = appInfo.provisioningExpiration else {
-            throw PayloadError.unsupportedItem("\(item.fileURL.lastPathComponent) has no embedded provisioning profile — only signed .ipa files can be deployed")
+            throw PayloadError.unsupportedItem("\(item.fileURL.lastPathComponent) has no embedded provisioning profile. Only signed .ipa files can be deployed.")
         }
         let name = prefixed(item.displayName, prefix: prefix)
-        var warnings = ["Publisher defaults to the app name — edit it in Intune if needed"]
+        var warnings = ["Publisher defaults to the app name. Edit it in the Intune admin center if needed."]
         if expiration < .now {
-            throw PayloadError.unsupportedItem("The provisioning profile in \(item.fileURL.lastPathComponent) expired on \(expiration.formatted(date: .abbreviated, time: .omitted)) — re-sign the app first")
+            throw PayloadError.unsupportedItem("The provisioning profile in \(item.fileURL.lastPathComponent) expired on \(expiration.formatted(date: .abbreviated, time: .omitted)). Sign the app again first.")
         }
         if expiration < .now.addingTimeInterval(30 * 86_400) {
             warnings.append("The provisioning profile expires on \(expiration.formatted(date: .abbreviated, time: .omitted))")
@@ -225,14 +225,10 @@ nonisolated enum PayloadBuilder {
     }
 
     /// Replaces any existing identity tag (current or legacy format) and
-    /// appends ours. An empty description becomes "Managed by Intune Deployer
-    /// [IntuneDeployer:…]" so the portal shows something meaningful.
+    /// appends the app's. An empty description becomes "Managed by Intune
+    /// Deployer [IntuneDeployer:…]" so the admin center shows something meaningful.
     static func taggedDescription(_ description: String?, tag: String) -> String {
-        var text = (description ?? "")
-            .replacing(/\s*\[(?:IntuneDeployer|gw):[0-9a-f]{8}\]/, with: "")
-            .replacing(/\s*\[IntuneDeployerProfile:[0-9a-f]{8}\]/, with: "")
-            .replacingOccurrences(of: "Managed by Intune Deployer", with: "")
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ItemIdentity.strippingTags(from: description)
         return text.isEmpty ? "Managed by Intune Deployer \(tag)" : "\(text) \(tag)"
     }
 
@@ -253,7 +249,7 @@ nonisolated enum PayloadBuilder {
     /// deploy path would strip anyway.
     static func stripServerKeys(_ dict: [String: Any]) -> [String: Any] {
         var result = dict.filter { !strippedKeys.contains($0.key) }
-        // roleScopeTagIds: drop when unset/default so we don't fight the server.
+        // roleScopeTagIds: drop when unset/default so the payload doesn't fight the server.
         if let tags = result["roleScopeTagIds"] as? [String], tags.isEmpty || tags == ["0"] {
             result["roleScopeTagIds"] = nil
         }
@@ -331,7 +327,7 @@ nonisolated enum PayloadBuilder {
         dict["displayName"] = prefixed(baseName, prefix: prefix)
         dict["description"] = taggedDescription(dict["description"] as? String, tag: tag)
         if dict["payload"] == nil {
-            warnings.append("Export has no payload — the profile will be empty")
+            warnings.append("Export has no payload, so the profile will be empty.")
         }
         if dict["payloadName"] == nil { dict["payloadName"] = dict["displayName"] }
         if dict["payloadFileName"] == nil { dict["payloadFileName"] = item.fileURL.lastPathComponent }
@@ -363,7 +359,7 @@ nonisolated enum PayloadBuilder {
             dict["scheduledActionsForRule"] = rules
         } else {
             dict["scheduledActionsForRule"] = [defaultScheduledActionRule()]
-            warnings.append("Source has no scheduledActionsForRule — adding default: mark noncompliant (block) after 24h")
+            warnings.append("Source has no scheduledActionsForRule. The default is added: mark noncompliant (block) after 24 hours.")
         }
         return Built(
             collection: .compliancePolicies,
@@ -428,7 +424,7 @@ nonisolated enum PayloadBuilder {
             "blockExecutionNotifications": settings.hideNotifications,
         ]
         if let minutes = settings.frequencyMinutes, minutes > 0 {
-            // executionFrequency is an ISO 8601 duration. Intune normalises
+            // executionFrequency is an ISO 8601 duration. Intune normalizes
             // stored values (PT1440M becomes P1D), so the canonical form is
             // emitted directly to keep re-runs idempotent.
             dict["executionFrequency"] = Self.isoDuration(minutes: minutes)

@@ -53,7 +53,7 @@ nonisolated struct AppContentUploader: Sendable {
 
     let client: Graph.Client
     let appID: String
-    /// e.g. "#microsoft.graph.macOSPkgApp" — used for the final PATCH.
+    /// e.g. "#microsoft.graph.macOSPkgApp", used for the final PATCH.
     let appODataType: String
     /// iOS uploads register the content file with an OTA-style manifest
     /// plist; macOS uploads send none.
@@ -61,6 +61,9 @@ nonisolated struct AppContentUploader: Sendable {
 
     private var appPath: String { "deviceAppManagement/mobileApps/\(appID)" }
 
+    /// Runs off the main actor: encrypting, hashing and slicing a package
+    /// of several gigabytes would otherwise freeze the window.
+    @concurrent
     func upload(fileName: String, fileData: Data) async throws {
         // 1. Content version (doc-sanctioned base-type cast).
         let versionResponse = try await client.post(
@@ -191,7 +194,7 @@ nonisolated struct AppContentUploader: Sendable {
             try await uploadBlocks(to: storageURI, data: data, renewPath: renewPath, recorder: recorder)
             await recorder.note("Upload", fileName, note: "\(summary): uploaded.", duration: elapsed())
         } catch is CancellationError {
-            await recorder.note("Upload", fileName, note: "\(summary): cancelled.", duration: elapsed(), isWarning: true)
+            await recorder.note("Upload", fileName, note: "\(summary): canceled.", duration: elapsed(), isWarning: true)
             throw CancellationError()
         } catch {
             await recorder.note("Upload", fileName, note: "\(summary): failed. \(Redaction.text(error.localizedDescription))",

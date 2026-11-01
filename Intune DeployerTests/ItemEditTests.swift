@@ -78,13 +78,16 @@ struct ItemEditTests {
             "a.sh": Data("new".utf8),            // source caught up with the edit
             "b.sh": Data(original.utf8),         // source unchanged
             "c.sh": Data("surprise".utf8),       // source changed differently
-            // "d.sh" missing → file deleted
+            // "d.sh" missing → file gone (evicted to iCloud, folder briefly empty)
         ], consideredPaths: ["a.sh", "b.sh", "c.sh", "d.sh"])
 
         #expect(store.edit(for: caughtUp.itemID) == nil)
         #expect(store.edit(for: unchanged.itemID)?.hasConflict == false)
         #expect(store.edit(for: conflicted.itemID)?.hasConflict == true)
-        #expect(store.edit(for: orphaned.itemID) == nil)
+        #expect(store.edit(for: orphaned.itemID) != nil, "an edit whose file is gone is kept until Revert")
+        // When the file comes back unchanged, the edit applies again.
+        store.reconcile(sourceID: sourceID, originalContents: ["d.sh": Data(original.utf8)], consideredPaths: ["d.sh"])
+        #expect(store.edit(for: orphaned.itemID)?.hasConflict == false)
 
         // Keeping a conflicted edit re-bases it on the new source content.
         store.keepDespiteConflict(itemID: conflicted.itemID, currentOriginal: Data("surprise".utf8))
@@ -97,6 +100,22 @@ struct ItemEditTests {
         store.reconcile(sourceID: sourceID, originalContents: [:], consideredPaths: [])
         #expect(store.edit(for: conflicted.itemID) != nil)
         #expect(store.edit(for: unchanged.itemID) != nil)
+    }
+
+    @Test("An unreadable item-edits.json is kept aside and never saved over")
+    func unreadableEditsFileIsKept() throws {
+        let folder = try tempDir()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let storage = folder.appending(path: "item-edits.json")
+        let broken = Data("[{\"itemID\": half-written".utf8)
+        try broken.write(to: storage)
+
+        let store = ItemEditStore(storageURL: storage)
+        #expect(store.problem?.contains("couldn’t be read") == true)
+        store.save(makeEdit("a.sh", content: "new", basedOn: "old"))
+        #expect(try Data(contentsOf: storage) == broken, "the file isn't saved over")
+        let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.contains("unreadable") }
+        #expect(copies.count == 1)
     }
 
     // MARK: Validation
@@ -137,22 +156,34 @@ struct ItemEditTests {
         #expect(sizeMessage.contains("2 MB"))
     }
 
-    @Test func minifiedJSONBecomesEditablePrettyPrint() throws {
-        let minified = #"{"name":"Policy","settings":[{"id":"0"}],"platforms":"macOS"}"#
-        let text = try #require(ItemEditorView.editableText(from: Data(minified.utf8), pathExtension: "json"))
+    @Test func minifiedJSONIsIndentedWithItsKeyOrderAndNumbers() throws {
+        let minified = #"{"name":"Policy","settings":[{"id":"0","value":1.0}],"empty":{},"platforms":"macOS, \"x\""}"#
+        let text = try ItemEditorView.editableText(from: Data(minified.utf8), pathExtension: "json").get()
         #expect(text.contains("\n"))
-        #expect(text.contains("\"name\" : \"Policy\""))
-        // Still parses to the same object.
+        #expect(text.contains("\"name\": \"Policy\""))
+        // Keys keep their order and numbers their spelling.
+        #expect(text.range(of: "\"name\"")!.lowerBound < text.range(of: "\"settings\"")!.lowerBound)
+        #expect(text.range(of: "\"settings\"")!.lowerBound < text.range(of: "\"platforms\"")!.lowerBound)
+        #expect(text.contains("1.0"))
+        #expect(text.contains("\"empty\": {}"))
+        // Only whitespace was added: the same characters otherwise.
+        #expect(text.filter { !$0.isWhitespace } == minified.filter { !$0.isWhitespace })
         let roundTripped = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
-        #expect(roundTripped?["platforms"] as? String == "macOS")
+        #expect(roundTripped?["platforms"] as? String == "macOS, \"x\"")
     }
 
-    @Test func binaryMobileconfigBecomesEditableXML() throws {
+    @Test func formattedJSONIsShownAsItIs() throws {
+        let formatted = "{\n    \"b\" : 2,\n    \"a\" : 1\n}\n"
+        #expect(try ItemEditorView.editableText(from: Data(formatted.utf8), pathExtension: "json").get() == formatted)
+    }
+
+    @Test func binaryProfilesAndOtherEncodingsAreNotEdited() throws {
         let plist: [String: Any] = ["PayloadDisplayName": "Dock", "PayloadType": "Configuration"]
         let binary = try PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0)
-        let text = try #require(ItemEditorView.editableText(from: binary, pathExtension: "mobileconfig"))
-        #expect(text.contains("<?xml"))
-        #expect(text.contains("PayloadDisplayName"))
+        #expect(ItemEditorView.editableText(from: binary, pathExtension: "mobileconfig") == .failure(.binaryProfile))
+        let latin1 = try #require("#!/bin/zsh\necho \"café\"\n".data(using: .isoLatin1))
+        #expect(ItemEditorView.editableText(from: latin1, pathExtension: "sh") == .failure(.notUTF8))
+        #expect(try ItemEditorView.editableText(from: Data("echo café".utf8), pathExtension: "sh").get() == "echo café")
     }
 
     // MARK: Scan overlay
@@ -242,7 +273,7 @@ struct ItemEditTests {
     @Test func planWarnsAboutEditedContent() {
         let item = makeItem("scripts/greeting.sh", type: .shellScript)
         let profile = TenantProfile(
-            displayName: "T", clientID: "e445f0a6-0000-0000-0000-000000000000",
+            displayName: "T", clientID: "12345678-0000-4000-8000-0000000000c1",
             tenantID: "t", selectedItemIDs: [item.id]
         )
         let plan = PlanEngine.makePlan(input: PlanInput(

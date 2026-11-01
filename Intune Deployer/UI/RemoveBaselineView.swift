@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Deletes every object tagged by this app in the tenant. It first counts
-/// them, then asks for the tenant's display name.
+/// Deletes the tenant profile's own objects in the tenant: it first counts
+/// them, then asks for the tenant profile's name, and deletes only what it
+/// counted.
 struct RemoveBaselineView: View {
     @Environment(TenantSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -9,7 +10,8 @@ struct RemoveBaselineView: View {
 
     @State private var typedName = ""
     @State private var started = false
-    @State private var objectCount: Int?
+    @State private var counted: TenantSession.RemovalCount?
+    private var objectCount: Int? { counted?.count }
     @State private var countError: String?
 
     var body: some View {
@@ -30,10 +32,10 @@ struct RemoveBaselineView: View {
             } else {
                 Form {
                     Text("""
-                    This deletes every Intune object in this tenant that carries this app's \
-                    identity tag ([IntuneDeployer:…] in the description) — across all \
-                    supported types. Objects without the tag are never touched. This cannot \
-                    be undone.
+                    This deletes the objects this tenant profile deployed (its profile tag, or \
+                    its naming prefix for older objects), the template filters it created and \
+                    its empty groups. Other profiles’ objects and untagged objects are never \
+                    touched. This can’t be undone.
                     """)
                     .font(.callout)
 
@@ -49,10 +51,11 @@ struct RemoveBaselineView: View {
             HStack {
                 Spacer()
                 Button(started ? "Close" : "Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 if !started {
                     Button("Delete Tagged Objects", role: .destructive) {
                         started = true
-                        Task { await session.removeBaseline(profile: profile) }
+                        Task { await session.removeBaseline(profile: profile, counted: counted) }
                     }
                     .disabled(!RemoveBaselineConfirmation.canDelete(typedName: typedName, profileName: profile.displayName,
                                                                     isApplying: session.isApplying, objectCount: objectCount))
@@ -72,7 +75,7 @@ struct RemoveBaselineView: View {
                 .font(.callout.bold())
         } else if let countError {
             VStack(alignment: .leading, spacing: 6) {
-                Label("Couldn’t count the tagged objects.", systemImage: "exclamationmark.triangle.fill")
+                Label("Couldn’t count the objects.", systemImage: "exclamationmark.triangle.fill")
                     .symbolRenderingMode(.multicolor)
                 Text(countError)
                     .font(.caption)
@@ -83,17 +86,17 @@ struct RemoveBaselineView: View {
         } else {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Counting the objects this app created…")
+                Text("Counting the objects this tenant profile deployed…")
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private func count() async {
-        objectCount = nil
+        counted = nil
         countError = nil
         do {
-            objectCount = try await session.taggedObjectCount(profile: profile)
+            counted = try await session.removalCount(profile: profile)
         } catch {
             countError = error.localizedDescription
         }

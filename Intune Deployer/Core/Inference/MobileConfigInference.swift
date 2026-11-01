@@ -30,14 +30,14 @@ nonisolated enum MobileConfigInference {
         guard let dict = plist as? [String: Any] else {
             // CMS-signed profiles are DER sequences starting with 0x30.
             if data.first == 0x30 {
-                return .skip(reason: "Signed .mobileconfig (CMS-wrapped) is not supported yet — export an unsigned profile")
+                return .skip(reason: "Signed .mobileconfig (CMS-wrapped) isn’t supported yet. Export an unsigned profile.")
             }
             return .skip(reason: "Not a readable property list")
         }
 
         let displayName = dict["PayloadDisplayName"] as? String
 
-        // Token scanning needs text; re-serialise as XML so binary plists work too.
+        // Token scanning needs text; re-serialize as XML so binary plists work too.
         let scannableText: String?
         if let xmlData = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0) {
             scannableText = String(data: xmlData, encoding: .utf8)

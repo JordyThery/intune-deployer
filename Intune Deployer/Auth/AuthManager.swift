@@ -74,7 +74,7 @@ nonisolated enum GraphScopes {
     }
 }
 
-/// How a real (non-demo) tenant may sign in under tests (JTKit ROADMAP step 11).
+/// How a real (non-demo) tenant may sign in under tests (JTKit's release check).
 enum UnderTestSignIn {
     /// Not under tests: MSAL as always.
     case off
@@ -184,8 +184,8 @@ final class AuthManager {
 
     /// Restores this profile's cached account from the keychain, if any: the
     /// saved one, else (for a tenant ID) the one account whose home tenant is
-    /// exactly that tenant. Never "the only account" whatever its tenant
-    /// (bug 5): a guest account is found by its saved identifier, and every
+    /// exactly that tenant. Never "the only account" whatever its tenant:
+    /// a guest account is found by its saved identifier, and every
     /// token is checked against the profile's tenant before anything is sent.
     func restoreAccount(for profile: TenantProfile) {
         guard !profile.isDemo, accountsByProfile[profile.id] == nil else { return }

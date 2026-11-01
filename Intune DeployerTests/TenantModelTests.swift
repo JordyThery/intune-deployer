@@ -8,7 +8,7 @@ struct TenantModelTests {
     @Test func tenantProfileRoundTripsThroughJSON() throws {
         let profile = TenantProfile(
             displayName: "Contoso",
-            clientID: "e445f0a6-0000-0000-0000-000000000000",
+            clientID: "12345678-0000-4000-8000-0000000000c1",
             tenantID: "c0ffee00-0000-0000-0000-000000000000",
             namingPrefix: "[CONTOSO]",
             variables: ["EnrollmentProfileName": "Contoso ADE"],
@@ -26,7 +26,7 @@ struct TenantModelTests {
         let legacy = Data(#"""
         {"id": "11111111-2222-3333-4444-555555555555",
          "displayName": "Legacy Tenant",
-         "tenantID": "contoso.com",
+         "tenantID": "contoso.example",
          "namingPrefix": "",
          "variables": {},
          "selectedItemIDs": []}

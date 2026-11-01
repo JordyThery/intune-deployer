@@ -43,9 +43,16 @@ nonisolated struct PlanItemAction: Sendable, Identifiable {
     var settingChanges: [SettingChange] = []
     let warnings: [String]
     /// The tenant object's assignments are already exactly `assignments`
-    /// (read at plan time), so Apply sends none (bug 1). False when they
-    /// couldn't be read: Apply then sends them.
+    /// (read at plan time), so Apply sends none. False when they couldn't
+    /// be read: Apply then sends them.
     var assignmentsUpToDate = false
+    /// An app's package as Plan read it; Apply refuses to upload another.
+    var package: PlanInput.PackageFile?
+
+    /// Whether Apply uploads this app's package.
+    var uploadsPackage: Bool {
+        collection == .apps && PlanEngine.uploadsPackage(kind)
+    }
 
     /// Whether Apply sends this action's assignments.
     var sendsAssignments: Bool {
@@ -68,7 +75,7 @@ nonisolated struct PlannedFilterCreation: Sendable, Identifiable, Hashable {
     let platform: ItemPlatform
 }
 
-/// A tenant object carrying our identity tag whose item is no longer selected.
+/// A tenant object carrying the app's identity tag whose item is no longer selected.
 nonisolated struct OrphanedObject: Sendable, Identifiable, Hashable {
     var id: String { objectID }
     let collection: TenantCollection
@@ -77,10 +84,11 @@ nonisolated struct OrphanedObject: Sendable, Identifiable, Hashable {
     let shortID: String
 }
 
+/// A plan error: Apply is refused until it is fixed. Warnings belong to
+/// their action (`PlanItemAction.warnings`).
 nonisolated struct PlanIssue: Sendable, Identifiable {
     enum Severity: Sendable {
         case error
-        case warning
     }
 
     let id = UUID()
@@ -93,7 +101,7 @@ nonisolated struct PlanIssue: Sendable, Identifiable {
 /// The dry-run result. Nothing is written until the user applies it.
 nonisolated struct Plan: Sendable {
     /// The profile and tenant the plan was made for; Apply refuses it for
-    /// any other (bug 7). Nil only in plans made by tests.
+    /// any other. Nil only in plans made by tests.
     var profileID: UUID?
     var tenantID: String?
     var actions: [PlanItemAction] = []
@@ -130,5 +138,25 @@ nonisolated struct ApplyResult: Sendable, Identifiable {
 
     var isFailure: Bool {
         if case .failure = outcome { true } else { false }
+    }
+
+    var isSkipped: Bool {
+        if case .skipped = outcome { true } else { false }
+    }
+
+    /// The line under finished results: skipped steps are counted apart
+    /// from the ones that were applied.
+    static func summary(_ results: [ApplyResult]) -> String {
+        let failures = results.count(where: \.isFailure)
+        let skipped = results.count(where: \.isSkipped)
+        let applied = results.count - failures - skipped
+        func steps(_ count: Int) -> String { "\(count) step\(count == 1 ? "" : "s")" }
+        if failures > 0 {
+            return "\(failures) of \(steps(results.count)) failed"
+        }
+        if skipped > 0 {
+            return "\(steps(applied)) applied, \(skipped) skipped"
+        }
+        return "Applied \(steps(applied)) successfully"
     }
 }
