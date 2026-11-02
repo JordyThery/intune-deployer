@@ -24,6 +24,7 @@ SMOKE_FILE="$PWD/Intune DeployerUITests/DemoSmokeUITests.swift"
 SIGNIN_TEST="Intune DeployerTests/LiveSignInTests"
 LIVE_TESTS=(
     "Intune DeployerTests/LiveLifecycleTests/baseline()"
+    "Intune DeployerTests/LiveLifecycleTests/appPackage()"
 )
 CLEANUP_TEST="Intune DeployerTests/LiveCleanupTests"
 # MSAL's cache and the GitHub token, seen from the test host (names as hashes).
