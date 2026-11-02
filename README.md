@@ -6,8 +6,8 @@ Microsoft Intune.
 Point it at one or more folders (or GitHub repositories) of plain configuration
 files — Settings Catalog JSON, `.mobileconfig` profiles, compliance policies,
 shell scripts, custom attributes, assignment filters, app packages — pick what
-you want, review a dry-run plan, and apply it to an Entra tenant through
-Microsoft Graph. No manifests, no PowerShell.
+you want, review a dry-run plan, and apply it to a Microsoft Intune tenant
+through Microsoft Graph. No manifests, no PowerShell.
 
 - **Dry-run by default.** Nothing is written to a tenant without an explicit
   Apply with a confirmation summary.
@@ -25,7 +25,8 @@ Microsoft Graph. No manifests, no PowerShell.
 | --- | --- |
 | ![Plan sheet with grouped actions](docs/plan.png) | ![Apply results with as-built export](docs/apply.png) |
 
-Requires macOS 15 or later.
+Requires macOS 15 or later, and a Microsoft Intune tenant with one app
+registration per tenant (see Setup).
 
 ## Download
 
@@ -43,22 +44,23 @@ time from **Help › Guided Tour**.
 
 ## Demo Mode
 
-To look around without a tenant, choose **Try Demo Mode** in the sidebar, or
-turn on Demo Mode from the tenant picker in the toolbar or the **Connection**
-menu. The app then works with "Contoso Intune (Demo)", a sample tenant inside
-the app: nothing is sent to a real tenant and no sign-in is needed. Plan,
-Apply, Remove Baseline, tenant export and Preflight run for real against the
-sample tenant, with their usual confirmations. Your baseline sources, item
-edits and platform choices stay as they are.
+To look around without a tenant, choose **Try Demo Mode** in the sidebar
+(shown while no tenant profile is saved), or turn on Demo Mode from the
+tenant picker in the toolbar or the **Connection** menu. The app then works
+with "Contoso Intune (Demo)", a sample tenant inside the app: nothing is
+sent to a real tenant and no sign-in is needed. Plan, Apply, Remove
+Baseline, tenant export and Preflight run for real against the sample
+tenant, with their usual confirmations. Your baseline sources, item edits
+and platform choices stay as they are.
 
 ## Setup
 
 ### 1. Create an app registration (per tenant)
 
-For every Entra tenant you deploy to, an admin creates one app registration in
+For every Microsoft Entra tenant you deploy to, an admin creates one app registration in
 that tenant:
 
-1. [Entra admin center](https://entra.microsoft.com) › **App registrations** ›
+1. [Microsoft Entra admin center](https://entra.microsoft.com) › **App registrations** ›
    **New registration**.
 2. Name it (e.g. "Intune Deployer"), choose **Accounts in this organizational
    directory only**, and register. **No client secret or certificate** — the
@@ -91,7 +93,7 @@ can do is the intersection of these scopes and the user’s Intune RBAC role).
 | `DeviceManagementConfiguration.ReadWrite.All` | Creating/updating profiles, compliance, filters | First Apply |
 | `DeviceManagementScripts.ReadWrite.All` | Creating/updating scripts and custom attributes | First Apply |
 | `DeviceManagementApps.ReadWrite.All` | Creating/updating apps and uploading content | First Apply |
-| `Group.ReadWrite.All` | Creating missing static groups (opt-in per profile) | First Apply with group creation enabled |
+| `Group.ReadWrite.All` | Creating missing static groups (opt-in per profile); deleting empty groups the profile created on Remove Baseline | First Apply with group creation enabled, or Remove Baseline when it deletes groups |
 
 ### 3. Baseline sources
 
@@ -99,8 +101,8 @@ Add a **local folder** or **any GitHub repository** (owner/repo, optional
 subfolder, optional release tag prefix such as `macos-v`). GitHub sources
 download the latest matching published release (or the default branch when the
 repo has no releases), are cached locally, and show an update badge when a
-newer matching release exists (checked at launch, on refresh, and from the
-source’s context menu). Private repositories work with a fine-grained personal
+newer matching release exists (checked at launch, on refresh (⌘R), and from
+the source’s context menu). Private repositories work with a fine-grained personal
 access token (read-only Contents permission), stored in the Keychain via
 **Settings › GitHub**.
 
@@ -195,7 +197,7 @@ time; Apply is blocked while any selected item has an unresolved token.
 ### Assignments
 
 Per item and per tenant: leave unchanged, or one or more targets — all
-devices, all users, or a static Entra group resolved by display name
+devices, all users, or a static Microsoft Entra group resolved by display name
 (optionally created on Apply when enabled in the profile). Groups can also be
 **excluded**; exclusions take precedence in Intune and can’t carry a filter.
 Including and excluding the same group is a plan error. Applying an item’s
@@ -229,7 +231,7 @@ before assignment. Bundle ID/version come from the package itself —
 `Distribution`/`PackageInfo` for .pkg, the app bundle’s Info.plist for .dmg
 and .ipa. The publisher field defaults to the app name; adjust it in the
 Intune admin center if needed. Re-uploads happen only when the bundle version, build number or file
-name changes.
+name changes (for an `.ipa`, also the provisioning expiry).
 
 `.ipa` support is a **preview**: the upload follows Microsoft’s LOB sample,
 but it has not yet been verified against a production deployment. The .ipa
@@ -288,10 +290,12 @@ and release tag are shown with every item.
 - Orphaned objects (tagged but no longer selected) are only deleted when
   explicitly ticked, and only the tenant profile’s own objects are listed.
   Objects deployed before profile tags count as the profile’s when their name
-  carries its naming prefix.
+  carries its naming prefix. With two or more deletions ticked, Apply asks you
+  to type the number of deletions first.
 - **Remove Baseline** deletes the tenant profile’s own tagged objects, the
-  built-in template filters it created and the groups its assignments name
-  that have no members, after typing the tenant profile name to confirm. Other profiles’
+  built-in template filters it created, and the groups it created that still
+  have no members (other groups its assignments name are listed and kept),
+  after typing the tenant profile name to confirm. Other profiles’
   objects and untagged objects are never touched.
 - Every write is sent only with a sign-in token of the profile’s tenant; a
   profile with a verified domain is checked against that tenant’s domains
@@ -309,16 +313,39 @@ and release tag are shown with every item.
   their identities.
 - Saved files the app can’t read (sources, item edits, platform choices) are
   copied aside and never saved over; an alert says so.
-- The activity log (⌘⇧L) records every Graph request — never tokens or
-  payloads.
+- The activity log (⇧⌘L) records every Graph, GitHub and upload request
+  (method, address, status and redacted headers). It never records tokens or
+  request bodies; error responses are recorded with secrets redacted.
+
+## Network and stored data
+
+The app contacts only:
+
+- `login.microsoftonline.com` (Microsoft sign-in through MSAL) and
+  `graph.microsoft.com` (reading and writing Intune objects);
+- Azure Storage, at the upload address Intune gives for each app package;
+- `api.github.com` and `github.com`, for GitHub sources and the daily update
+  check.
+
+Tenant profiles, sources, item edits, platform choices and the GitHub cache
+are stored in `~/Library/Containers/be.jordythery.intune-deployer/Data/Library/Application Support/Intune Deployer`.
+The GitHub token is in the Keychain (service
+`be.jordythery.intune-deployer.github`); Microsoft sign-ins are kept by MSAL
+in the Keychain.
 
 ## Building from source
 
-1. Open `Intune Deployer.xcodeproj` in Xcode 26 or later (the MSAL Swift
-   package resolves on first build).
+1. Open `Intune Deployer.xcodeproj` in Xcode 26 or later. Swift Package
+   Manager resolves JTKit and, through it, MSAL 2.16.0 on first build.
 2. Set your own development team and (optionally) bundle ID — remember the
    bundle ID is part of the redirect URI your app registrations must use.
 3. Build and run (macOS 15+). Tests: ⌘U.
+
+The app’s only package dependency is
+[JTKit](https://github.com/JordyThery/JTKit), the shared package of these
+apps. Resolving it also downloads Microsoft’s MSAL, which JTKit uses for
+Intune sign-in; this app links and ships it for that sign-in (see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
 
 ## Support
 
