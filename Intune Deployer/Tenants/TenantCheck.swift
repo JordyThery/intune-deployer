@@ -22,9 +22,19 @@ nonisolated enum TenantCheck {
         }
     }
 
+    /// The tenant a token was issued for: the one MSAL reported with it,
+    /// else the token's own `tid` claim (Microsoft calls access tokens
+    /// opaque, so the claim is only the fallback). Lowercased.
+    static func tenantID(of token: IssuedToken) -> String? {
+        if let tenant = token.tenantID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !tenant.isEmpty {
+            return tenant
+        }
+        return EntraToken.tenantID(ofAccessToken: token.accessToken)
+    }
+
     /// Throws unless the token is for the `expected` tenant ID.
-    static func require(_ token: String, isFor expected: String, profile: TenantProfile) throws {
-        guard let tenant = EntraToken.tenantID(ofAccessToken: token) else { throw Failure.unreadable }
+    static func require(_ token: IssuedToken, isFor expected: String, profile: TenantProfile) throws {
+        guard let tenant = tenantID(of: token) else { throw Failure.unreadable }
         guard tenant == expected.lowercased() else { throw Failure.otherTenant(profile: profile.displayName) }
     }
 }

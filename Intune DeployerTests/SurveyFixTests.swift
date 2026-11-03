@@ -130,6 +130,51 @@ struct TenantCheckTests {
         await session(same, tokenTenant: tenantA).apply(profile: planned, plan: plan, deleteOrphanIDs: [], items: [], sourceStore: emptyStore())
         #expect(writes(same).count == 1)
     }
+
+    @Test("The tenant MSAL reports with a token is checked first; the token's own claim only when it reports none")
+    func msalTenantFirst() {
+        #expect(TenantCheck.tenantID(of: IssuedToken(accessToken: token(tid: tenantB), tenantID: tenantA.uppercased())) == tenantA)
+        #expect(TenantCheck.tenantID(of: IssuedToken(accessToken: token(tid: tenantB), tenantID: nil)) == tenantB)
+        #expect(TenantCheck.tenantID(of: IssuedToken(accessToken: "not-a-jwt", tenantID: " ")) == nil)
+    }
+
+    /// Hands out `ofTenantA` tokens of tenant A, then tokens of tenant B:
+    /// another account signed in during the session.
+    @MainActor
+    final class SwitchingTokens {
+        private var left: Int
+        init(ofTenantA count: Int) { left = count }
+        func provider() -> TenantSession.TokenProvider {
+            { _, _, _ in
+                self.left -= 1
+                return token(tid: self.left >= 0 ? tenantA : tenantB)
+            }
+        }
+    }
+
+    @Test("A token of another tenant later in the same session is refused, for a tenant ID and for a verified domain")
+    func tenantChangesMidSession() async {
+        let (plan, profile, _) = scriptPlan()
+        let domainProfile = TenantProfile(displayName: "Lab", clientID: UUID().uuidString, tenantID: "lab.example", namingPrefix: "[LAB]")
+        let (domainPlan, plannedDomain, _) = scriptPlan(profile: domainProfile)
+        // Tenant A's tokens last up to the write permission check (`me`):
+        // one for it; a domain profile first also confirms its domain (two).
+        for (plan, profile, ofTenantA) in [(plan, profile, 1), (domainPlan, plannedDomain, 3)] {
+            let tokens = SwitchingTokens(ofTenantA: ofTenantA)
+            let server = MockServer { request in
+                if request.path.hasSuffix("/organization") { return list([["id": tenantA, "verifiedDomains": [["name": "lab.example"]]]]) }
+                return request.method == "GET" ? .json(200, #"{"id":"me"}"#) : .json(201, #"{"id":"new-1"}"#)
+            }
+            let guardLog = TestRun.AttemptLog(fileURL: FileManager.default.temporaryDirectory
+                .appending(path: "IntuneDeployerTests-guard-\(UUID().uuidString).jsonl"))
+            let session = TenantSession(auth: AuthManager(underTest: .refuseAll(guardLog)), activityLog: ActivityLog(),
+                                        realTenantSession: server.session, tokenProvider: tokens.provider())
+            await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: [], sourceStore: emptyStore())
+            #expect(writes(server).isEmpty, "\(profile.tenantID): \(writes(server).map(\.path))")
+            #expect(server.requests.contains { $0.path.hasSuffix("/me") }, "\(profile.tenantID): the first token was used")
+            #expect(session.applyResults?.contains { $0.title.hasPrefix("Create") && $0.isFailure } == true, "\(profile.tenantID)")
+        }
+    }
 }
 
 // MARK: - Bug 7: the plan's tenant, one run at a time

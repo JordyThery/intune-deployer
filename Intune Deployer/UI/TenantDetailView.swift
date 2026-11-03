@@ -72,7 +72,7 @@ struct TenantDetailView: View {
                     Button("Remove Baseline…", role: .destructive) { showingRemoveBaseline = true }
                         .disabled(!auth.isSignedIn(profile))
                         .help(auth.isSignedIn(profile)
-                            ? "Delete every object this app created in the tenant (typed confirmation required)"
+                            ? "Delete the objects this tenant profile deployed (typed confirmation required)"
                             : "Sign in to this tenant first")
                 }
             }

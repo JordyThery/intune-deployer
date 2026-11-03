@@ -3,6 +3,20 @@ import JTKit
 
 /// What the Apply confirmation says and when Apply can be pressed; the plan
 /// sheet shows it, kept here so tests can check it.
+/// What Apply… was pressed with: the ticked deletions are taken once, so
+/// the number the confirmation shows (or asks to type) is the number of
+/// objects Apply deletes.
+nonisolated struct ApplyRequest: Identifiable, Sendable, Equatable {
+    let id = UUID()
+    /// Tenant object IDs of the ticked orphans; Apply deletes exactly these.
+    let deleteOrphanIDs: Set<String>
+
+    var deletions: Int { deleteOrphanIDs.count }
+
+    /// The number to type before Apply; nil when the dialog is enough.
+    var typedCount: Int? { ApplyConfirmation.typedCount(deletions: deletions) }
+}
+
 nonisolated enum ApplyConfirmation {
     /// From two ticked deletions, the number of deletions is typed before
     /// Apply: JTKit's rule for what can't be undone.

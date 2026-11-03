@@ -39,7 +39,7 @@
 - The editor shows content as it is: one-line JSON is indented and keys keep their order. Binary profiles and files that aren’t UTF-8 text are refused instead of converted.
 - An edit whose file disappears is kept until it’s reverted.
 - A misspelled `# intune:` key is shown with the item’s detection.
-- Settings › GitHub says when the Keychain refused to save or remove the token. The token is never read from the Keychain while tests run.
+- Settings › GitHub says when the Keychain refused to save or remove the token.
 
 ### Reports, export and Preflight
 - Tenant export removes the profile tag.

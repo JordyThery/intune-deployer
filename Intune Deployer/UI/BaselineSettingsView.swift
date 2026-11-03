@@ -85,7 +85,7 @@ struct BaselineSettingsView: View {
                 } header: {
                     Text("Variables")
                 } footer: {
-                    Text("Values are substituted for {{Token}} placeholders at plan time. Add every token your selected items use — an empty value counts as unresolved and blocks Apply.")
+                    Text("Values are substituted for {{Token}} placeholders at plan time. Add every token your selected items use. An empty value counts as unresolved and blocks Apply.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

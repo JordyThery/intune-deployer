@@ -64,8 +64,8 @@ struct TenantConnectionsTab: View {
             footer: """
             Tenant ID: Entra admin center › Overview. Client ID: the Application (client) ID of \
             the app registration an admin creates in that tenant. Naming prefix, default \
-            assignments and variables are set in the main window: select the tenant in the \
-            sidebar, then Baseline Settings….
+            assignments and variables are set in the main window, in Baseline Settings… \
+            (select the tenant in the sidebar).
             """,
             newRecord: { _ in TenantProfile(displayName: "New tenant") },
             importer: tenants.makeImport(adopt: sources.adopt),

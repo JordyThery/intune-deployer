@@ -20,6 +20,13 @@ nonisolated struct SignedInAccount: Sendable, Equatable {
     }
 }
 
+/// An access token and the tenant it was issued for, lowercased (nil when
+/// unknown: then the token's own `tid` is read).
+nonisolated struct IssuedToken: Sendable, Equatable {
+    let accessToken: String
+    let tenantID: String?
+}
+
 /// Registration details shown in Settings and the README; identical for every
 /// per-tenant app registration.
 nonisolated enum AppRegistrationInfo {
@@ -268,10 +275,17 @@ final class AuthManager {
     /// `MicrosoftSignIn`).
     /// - Parameter forceRefresh: a new token, after Graph answered 401.
     func accessToken(profile: TenantProfile, scopes: [String], forceRefresh: Bool = false) async throws -> String {
+        try await token(profile: profile, scopes: scopes, forceRefresh: forceRefresh).accessToken
+    }
+
+    /// A token and the tenant it was issued for: MSAL's tenant profile,
+    /// else the token's `tid` claim (JTKit's `MicrosoftToken.tenantID`).
+    /// The demo tenant's has none (it's never checked).
+    func token(profile: TenantProfile, scopes: [String], forceRefresh: Bool = false) async throws -> IssuedToken {
         if profile.isDemo {
             guard let demo else { throw MicrosoftSignInError.notSignedIn }
             demoScopes += scopes.filter { !demoScopes.contains($0) }
-            return demo.microsoftSignIn().accessToken
+            return IssuedToken(accessToken: demo.microsoftSignIn().accessToken, tenantID: nil)
         }
         if let refusing = refusingGuard(for: profile) {
             refusing.record("token for a saved tenant")
@@ -289,7 +303,7 @@ final class AuthManager {
         accountsByProfile[profile.id] = SignedInAccount(token.account)
         grantedScopesByProfile[profile.id] = token.scopes
         if let tenant = token.tenantID { onSignedInTenant?(profile, tenant) }
-        return token.accessToken
+        return IssuedToken(accessToken: token.accessToken, tenantID: token.tenantID)
     }
 
     // MARK: - Private

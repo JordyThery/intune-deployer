@@ -90,4 +90,13 @@ struct DeletionConfirmationTests {
         #expect(ApplyConfirmation.typingProblem("", deletions: 1) == nil)
         #expect(ApplyConfirmation.deletionLine(deletions: 3, tenant: "Contoso") == "3 objects are deleted from “Contoso”. This can’t be undone.")
     }
+
+    @Test("The number typed is the number of orphans Apply is given to delete")
+    func typedCountIsWhatIsDeleted() {
+        let request = ApplyRequest(deleteOrphanIDs: ["a", "b", "c"])
+        #expect(request.deletions == 3)
+        #expect(request.typedCount == 3)
+        #expect(ApplyConfirmation.typingProblem("3", deletions: request.deletions) == nil)
+        #expect(ApplyRequest(deleteOrphanIDs: ["a"]).typedCount == nil, "one deletion: the dialog is enough")
+    }
 }

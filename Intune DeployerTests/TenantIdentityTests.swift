@@ -166,3 +166,63 @@ struct TenantIdentityTests {
         #expect(!server.requests.contains { $0.path.contains("assignmentFilters/") }, "\(server.requests.map(\.path))")
     }
 }
+
+@Suite("Inventory and tenant export, end to end")
+struct InventoryExportTests {
+    @MainActor
+    @Test("The inventory lists each collection and reports a failing one; export merges settings, expands compliance and reports failures")
+    func inventoryAndExport() async throws {
+        let policy: [String: Any] = ["id": "sc-1", "name": "[LAB] Dock", "description": "[IntuneDeployer:0a0b0c0d]",
+                                     "platforms": "macOS", "technologies": "mdm"]
+        let setting: [String: Any] = ["id": "0", "settingInstance": [
+            "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+            "settingDefinitionId": "com.apple.dock_autohide",
+            "choiceSettingValue": ["value": "com.apple.dock_autohide_true", "children": [] as [Any]],
+        ]]
+        let compliance: [String: Any] = ["id": "cp-1", "@odata.type": "#microsoft.graph.macOSCompliancePolicy",
+                                         "displayName": "[LAB] Encryption", "storageRequireEncryption": true,
+                                         "scheduledActionsForRule": [["ruleName": NSNull(), "scheduledActionConfigurations": [
+                                             ["actionType": "block", "gracePeriodHours": 0]]]]]
+        let policyJSON = json(policy)
+        let settings = json(["value": [setting]])
+        let policies = json(["value": [policy]])
+        let compliances = json(["value": [compliance]])
+        let server = MockServer { request in
+            let path = request.path
+            if path.hasSuffix("/configurationPolicies/sc-1/settings") { return .json(200, settings) }
+            if path.hasSuffix("/configurationPolicies/sc-1") { return .json(200, policyJSON) }
+            if path.hasSuffix("/configurationPolicies") { return .json(200, policies) }
+            if path.hasSuffix("/deviceCompliancePolicies") { return .json(200, compliances) }
+            if path.hasSuffix("/deviceShellScripts") || path.contains("/deviceShellScripts/") {
+                return .json(403, #"{"error":{"code":"Forbidden","message":"Not allowed"}}"#)
+            }
+            return .json(200, #"{"value":[]}"#)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-export-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let guardLog = TestRun.AttemptLog(fileURL: folder.appending(path: "guard.jsonl"))
+        let session = TenantSession(auth: AuthManager(underTest: .refuseAll(guardLog)), activityLog: ActivityLog(),
+                                    realTenantSession: server.session, tokenProvider: { _, _, _ in token(tid: tenantA) })
+        let profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA, namingPrefix: "[LAB]")
+
+        await session.loadInventory(for: profile)
+        #expect(session.inventory[.settingsCatalog]?.map(\.id) == ["sc-1"])
+        #expect(session.inventory[.compliancePolicies]?.map(\.id) == ["cp-1"])
+        #expect(session.inventoryErrors[.shellScripts] != nil, "a refused collection is reported")
+        #expect(session.inventoryErrors[.settingsCatalog] == nil)
+
+        let summary = await session.export([
+            ExportSelection(collection: .settingsCatalog, objectID: "sc-1", name: "[LAB] Dock"),
+            ExportSelection(collection: .compliancePolicies, objectID: "cp-1", name: "[LAB] Encryption"),
+            ExportSelection(collection: .shellScripts, objectID: "sh-1", name: "Refused script"),
+        ], profile: profile, to: folder.appending(path: "out"))
+        #expect(summary.written.count == 2, "\(summary.written) \(summary.skipped)")
+        #expect(summary.skipped.map(\.name) == ["Refused script"])
+        #expect(server.requests.contains { $0.url.absoluteString.contains("scheduledActionsForRule") }, "compliance is read expanded")
+        let catalog = try #require(summary.written.first { $0.hasSuffix(".json") && !$0.lowercased().contains("compliance") })
+        let text = try String(contentsOf: folder.appending(path: "out").appending(path: catalog), encoding: .utf8)
+        #expect(text.contains("com.apple.dock_autohide"), "the settings are merged into the policy")
+        #expect(!text.contains("IntuneDeployer"), "no tags in exported files")
+        #expect(!text.contains("[LAB]"), "no naming prefix in exported files")
+    }
+}

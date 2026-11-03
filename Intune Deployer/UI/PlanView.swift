@@ -14,8 +14,9 @@ struct PlanView: View {
     let items: [InferredItem]
 
     @State private var orphansToDelete: Set<String> = []
-    @State private var confirmingApply = false
-    @State private var typingDeletionCount = false
+    /// Apply… pressed: the dialog, or from two deletions the typed count.
+    @State private var confirmingApply: ApplyRequest?
+    @State private var typingDeletionCount: ApplyRequest?
     @State private var reportDocument: TextExportDocument?
     @State private var reportType: UTType = .plainText
     @State private var reportFilename = ""
@@ -141,7 +142,7 @@ struct PlanView: View {
                 } header: {
                     Text("Orphaned (tagged but no longer selected)")
                 } footer: {
-                    Text("Orphans are deleted only when ticked. Objects without this app’s tag are never touched.")
+                    Text("Orphans are deleted only when ticked. Other profiles’ objects and untagged objects are never touched.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -190,11 +191,12 @@ struct PlanView: View {
                 .keyboardShortcut(.cancelAction)
             if session.applyResults == nil {
                 Button("Apply…") {
+                    let request = ApplyRequest(deleteOrphanIDs: orphansToDelete)
                     // from two deletions the number is typed, which a dialog can't hold
-                    if ApplyConfirmation.typedCount(deletions: orphansToDelete.count) != nil {
-                        typingDeletionCount = true
+                    if request.typedCount != nil {
+                        typingDeletionCount = request
                     } else {
-                        confirmingApply = true
+                        confirmingApply = request
                     }
                 }
                     .keyboardShortcut(.defaultAction)
@@ -206,28 +208,30 @@ struct PlanView: View {
         }
         .padding()
         .confirmationDialog(
-            "Apply \(applySummary) to “\(profile.displayName)”?",
-            isPresented: $confirmingApply,
-            titleVisibility: .visible
-        ) {
-            Button("Apply", role: .destructive) { startApply() }
+            "Apply \(confirmingApply.map(applySummary) ?? applySummary) to “\(profile.displayName)”?",
+            isPresented: Binding(get: { confirmingApply != nil }, set: { if !$0 { confirmingApply = nil } }),
+            titleVisibility: .visible,
+            presenting: confirmingApply
+        ) { request in
+            Button("Apply", role: .destructive) { startApply(request) }
             Button("Cancel", role: .cancel) {}
-        } message: {
+        } message: { _ in
             Text("Changes are written to the tenant through Microsoft Graph and are not undone automatically.")
         }
-        .sheet(isPresented: $typingDeletionCount) {
+        .sheet(item: $typingDeletionCount) { request in
             ApplyDeletionsSheet(
-                title: "Apply \(applySummary) to “\(profile.displayName)”?",
-                deletions: orphansToDelete.count,
+                title: "Apply \(applySummary(request)) to “\(profile.displayName)”?",
+                deletions: request.deletions,
                 tenant: profile.displayName,
-                apply: startApply
+                apply: { startApply(request) }
             )
         }
     }
 
-    private func startApply() {
+    /// Apply deletes exactly the orphans the confirmation counted.
+    private func startApply(_ request: ApplyRequest) {
         guard let plan = session.currentPlan else { return }
-        let orphanIDs = orphansToDelete
+        let orphanIDs = request.deleteOrphanIDs
         Task {
             await session.apply(
                 profile: profile,
@@ -245,6 +249,10 @@ struct PlanView: View {
 
     private var applySummary: String {
         ApplyConfirmation.summary(session.currentPlan, deletions: orphansToDelete.count)
+    }
+
+    private func applySummary(_ request: ApplyRequest) -> String {
+        ApplyConfirmation.summary(session.currentPlan, deletions: request.deletions)
     }
 
     // MARK: - As-built report export

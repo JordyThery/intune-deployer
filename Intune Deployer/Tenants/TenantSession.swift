@@ -106,12 +106,12 @@ final class TenantSession {
         let expected = profile.isDemo ? nil : expectedTenantID(for: profile)
         let tokens = MicrosoftTokenSource { @MainActor forceRefresh in
             let token = if let provider {
-                try await provider(profile, scopes, forceRefresh)
+                IssuedToken(accessToken: try await provider(profile, scopes, forceRefresh), tenantID: nil)
             } else {
-                try await auth.accessToken(profile: profile, scopes: scopes, forceRefresh: forceRefresh)
+                try await auth.token(profile: profile, scopes: scopes, forceRefresh: forceRefresh)
             }
             if let expected { try TenantCheck.require(token, isFor: expected, profile: profile) }
-            return token
+            return token.accessToken
         }
         let session: URLSession
         if profile.isDemo {
@@ -151,11 +151,11 @@ final class TenantSession {
             return client(for: profile, scopes: scopes)
         }
         let token = if let tokenProvider {
-            try await tokenProvider(profile, scopes, false)
+            IssuedToken(accessToken: try await tokenProvider(profile, scopes, false), tenantID: nil)
         } else {
-            try await auth.accessToken(profile: profile, scopes: scopes)
+            try await auth.token(profile: profile, scopes: scopes)
         }
-        guard let tokenTenant = EntraToken.tenantID(ofAccessToken: token) else { throw TenantCheck.Failure.unreadable }
+        guard let tokenTenant = TenantCheck.tenantID(of: token) else { throw TenantCheck.Failure.unreadable }
         confirmedTenantIDs["\(profile.id)|\(tenant)"] = tokenTenant
         let checking = client(for: profile, scopes: scopes)
         nonisolated struct Organization: Decodable, Sendable {

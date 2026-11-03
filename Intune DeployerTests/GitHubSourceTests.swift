@@ -1,6 +1,7 @@
 import Foundation
 import JTKit
 import JTKitTestSupport
+import os
 import Testing
 @testable import Intune_Deployer
 
@@ -147,5 +148,60 @@ struct GitHubSourceTests {
         let decoded = try JSONDecoder().decode([BaselineSource].self, from: data)
         #expect(decoded.first?.gitHubSpec?.tagPrefix == "macos-v")
         #expect(decoded.first?.gitHub?.licenseSPDX == "MIT")
+    }
+}
+
+@Suite("GitHub sync, end to end")
+struct GitHubSyncTests {
+    /// A zip shaped like GitHub's zipball: one "owner-repo-sha" folder.
+    private static func zipball(files: [String: String]) throws -> Data {
+        let work = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-zipball-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: work) }
+        let root = work.appending(path: "example-baseline-abc1234")
+        for (path, contents) in files {
+            let url = root.appending(path: path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: url)
+        }
+        let zip = work.appending(path: "zipball.zip")
+        _ = try AppPackageInspector.run("/usr/bin/ditto", ["-c", "-k", "--keepParent", root.path, zip.path])
+        return try Data(contentsOf: zip)
+    }
+
+    @MainActor
+    @Test("A GitHub source syncs its latest release, is scanned, and a newer release shows as an update")
+    func syncAndUpdate() async throws {
+        let zip = try Self.zipball(files: ["scripts/hello.sh": Fixtures.plainScript])
+        let v1 = #"{"tag_name":"v1.0","draft":false,"prerelease":false,"published_at":"2026-10-01T00:00:00Z"}"#
+        let releases = OSAllocatedUnfairLock(initialState: [v1])
+        let server = MockServer { request in
+            let path = request.path
+            if path.hasSuffix("/repos/example/baseline") {
+                return .json(200, #"{"default_branch":"main","html_url":"https://github.com/example/baseline","license":{"name":"MIT License","spdx_id":"MIT"}}"#)
+            }
+            if path.hasSuffix("/releases") {
+                return .json(200, "[" + releases.withLock { $0 }.joined(separator: ",") + "]")
+            }
+            if path.hasSuffix("/zipball/v1.0") { return MockResponse(status: 200, headers: ["Content-Type": "application/zip"], body: zip) }
+            return .json(404, #"{"message":"Not Found"}"#)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-sync-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = SourceStore(activityLog: ActivityLog(), folder: folder, gitHubSession: server.session, gitHubToken: { nil })
+        store.addGitHubSource(GitHubSpec(owner: "example", repo: "baseline"))
+        let id = try #require(store.sources.first?.id)
+        for _ in 0..<250 where store.items(for: [id]).isEmpty && store.scanErrors[id] == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(store.scanErrors[id] == nil, "\(store.scanErrors[id] ?? "")")
+        #expect(store.items(for: [id]).map(\.relativePath) == ["scripts/hello.sh"])
+        #expect(store.sources.first?.gitHub?.syncedTag == "v1.0")
+        #expect(store.sources.first?.gitHub?.licenseSPDX == "MIT")
+
+        await store.checkGitHubUpdates()
+        #expect(store.availableUpdates[id] == nil, "nothing newer yet")
+        releases.withLock { $0.append(#"{"tag_name":"v1.1","draft":false,"prerelease":false,"published_at":"2026-10-20T00:00:00Z"}"#) }
+        await store.checkGitHubUpdates()
+        #expect(store.availableUpdates[id] == "v1.1")
     }
 }

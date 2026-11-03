@@ -125,6 +125,11 @@ struct RequestLoggingTests {
         let text = transcripts(log)
         #expect(!text.contains("SAS-SIGNATURE"))
         #expect(!text.contains("graph-token"))
+        // the commit body holds the encryption key: never recorded
+        #expect(server.requests.contains { $0.path.hasSuffix("/commit") })
+        for key in ["fileEncryptionInfo", "encryptionKey", "macKey", "initializationVector"] {
+            #expect(!text.contains(key), "\(key) is in the activity log")
+        }
     }
 
     @Test func aFailedBlockGetsItsOwnEntryWithTheSignatureHidden() async throws {
