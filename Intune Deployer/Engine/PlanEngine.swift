@@ -94,11 +94,16 @@ nonisolated struct CommittedFile: Sendable, Hashable {
     init?(graph body: Data) {
         guard let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
         name = dict["name"] as? String
-        size = ((dict["sizeInBytes"] ?? dict["size"]) as? NSNumber)?.intValue
+        // Graph returns `size` (checked live); `sizeInBytes` only as a fallback.
+        size = ((dict["size"] ?? dict["sizeInBytes"]) as? NSNumber)?.intValue
     }
 }
 
 nonisolated extension TenantCollection {
+    /// Whether its objects have assignments. Assignment filters don't: Plan
+    /// reads no assignments for them.
+    var hasAssignments: Bool { self != .assignmentFilters }
+
     /// Deployment order: filters/groups → custom attributes → scripts →
     /// apps → configuration profiles → compliance. Assignments run last.
     var applyOrder: Int {

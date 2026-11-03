@@ -2,11 +2,11 @@ import JTKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The app's own parts of JTKit's Settings window: General (below JTKit's
-/// Appearance), then the Connections and GitHub tabs. JTKit adds Updates last.
+/// The app's own parts of JTKit's Settings window: General (item editing),
+/// then the Connections and GitHub tabs. JTKit adds Updates last.
 @MainActor
 enum SettingsContent {
-    /// General tab, below Appearance.
+    /// The General tab.
     static var general: some View {
         ItemEditingSection()
     }
@@ -194,7 +194,12 @@ struct GitHubAccessSection: View {
             .foregroundStyle(.secondary)
         }
         .onAppear {
-            gitHubToken = GitHubTokenStore.load() ?? ""
+            do {
+                gitHubToken = try GitHubTokenStore.load() ?? ""
+            } catch {
+                gitHubToken = ""
+                tokenStatus = "The saved token couldn’t be read: \(error.localizedDescription)"
+            }
         }
     }
 }

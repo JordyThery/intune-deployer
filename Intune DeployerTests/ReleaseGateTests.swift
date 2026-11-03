@@ -565,9 +565,9 @@ struct SmallerGateTests {
 
     @MainActor
     @Test("Under tests the GitHub token is never read from the Keychain, and Settings says when saving fails")
-    func gitHubToken() async {
+    func gitHubToken() async throws {
         #expect(!(GitHubTokenStore.appStore is KeychainSecretStore))
-        #expect(GitHubTokenStore.load() == nil, "the test host's store starts empty")
+        #expect(try GitHubTokenStore.load() == nil, "the test host's store starts empty")
         var reads = 0
         let store = SourceStore(folder: tempFolder("token"), gitHubToken: { reads += 1; return nil })
         await store.checkGitHubUpdates()

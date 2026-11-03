@@ -35,7 +35,7 @@ extension TenantSession {
         do {
             client = try await checkedClient(for: profile, scopes: GraphScopes.tenantRead)
         } catch {
-            return ExportSummary(folder: folder, written: [], skipped: [.init(name: "Tenant check", reason: error.localizedDescription)])
+            return ExportSummary(folder: folder, written: [], skipped: [.init(name: "Tenant check", reason: Stopping.describe(error))])
         }
         let (bodies, fetchFailures) = await Self.fetchFullBodies(selection, client: client)
         let outcomes = bodies.map { TenantExporter.export(collection: $0.collection, body: $0.body, namingPrefix: profile.namingPrefix) }
@@ -48,7 +48,7 @@ extension TenantSession {
             skipped += result.skipped
         } catch {
             written = []
-            skipped.append(.init(name: "Export folder", reason: error.localizedDescription))
+            skipped.append(.init(name: "Export folder", reason: Stopping.describe(error)))
         }
         return ExportSummary(folder: folder, written: written, skipped: skipped)
     }
@@ -75,7 +75,7 @@ extension TenantSession {
                     bodies.append((.compliancePolicies, body))
                 }
             } catch {
-                failures.append(.init(name: "Compliance policies", reason: error.localizedDescription))
+                failures.append(.init(name: "Compliance policies", reason: Stopping.describe(error)))
             }
         }
 
@@ -86,7 +86,7 @@ extension TenantSession {
                     do {
                         return .success((entry.collection, try await fetchOne(entry, client: client)))
                     } catch {
-                        return .failure(FetchFailure(name: entry.name, message: error.localizedDescription))
+                        return .failure(FetchFailure(name: entry.name, message: Stopping.describe(error)))
                     }
                 }
             }
@@ -160,7 +160,7 @@ extension TenantSession {
                 try file.contents.write(to: destination, options: .withoutOverwriting)
                 written.append(relativePath)
             } catch {
-                skipped.append(.init(name: file.baseName, reason: error.localizedDescription))
+                skipped.append(.init(name: file.baseName, reason: Stopping.describe(error)))
             }
         }
         return (written, skipped)

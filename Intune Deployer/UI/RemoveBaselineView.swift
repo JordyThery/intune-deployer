@@ -51,6 +51,7 @@ struct RemoveBaselineView: View {
                 .formStyle(.grouped)
             }
 
+            RequestWaitsBar(waits: session.waits)
             Divider()
             HStack {
                 Spacer()
@@ -105,7 +106,7 @@ struct RemoveBaselineView: View {
         do {
             counted = try await session.removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
         } catch {
-            countError = error.localizedDescription
+            countError = Stopping.describe(error)
         }
     }
 }

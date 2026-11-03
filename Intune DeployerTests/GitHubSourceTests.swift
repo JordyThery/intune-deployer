@@ -77,15 +77,35 @@ struct GitHubSourceTests {
 
     /// On a fake store: the real Keychain item is the user's own token, which
     /// a test must never overwrite or delete.
-    @Test func tokenIsTrimmedAndEmptyDeletes() {
+    @Test func tokenIsTrimmedAndEmptyDeletes() throws {
         let store = InMemorySecretStore()
         GitHubTokenStore.save("  github_pat_test_123\n", to: store)
-        #expect(GitHubTokenStore.load(from: store) == "github_pat_test_123")
-        #expect(store.secret(for: "personal-access-token") == "github_pat_test_123")
+        #expect(try GitHubTokenStore.load(from: store) == "github_pat_test_123")
+        #expect(try store.readSecret(for: "personal-access-token") == "github_pat_test_123")
         // Saving empty removes the token.
         GitHubTokenStore.save("   ", to: store)
-        #expect(GitHubTokenStore.load(from: store) == nil)
-        #expect(store.secret(for: "personal-access-token") == nil)
+        #expect(try GitHubTokenStore.load(from: store) == nil)
+        #expect(try store.readSecret(for: "personal-access-token") == nil)
+    }
+
+    @MainActor
+    @Test("A Keychain that can't be read is reported as such, not as no token")
+    func unreadableKeychainIsReported() async throws {
+        let store = InMemorySecretStore()
+        GitHubTokenStore.save("github_pat_test_123", to: store)
+        store.refusesReads = true
+        #expect(throws: SecretStoreError.self) { try GitHubTokenStore.load(from: store) }
+
+        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-keychain-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sources = SourceStore(folder: folder, gitHubSession: UnderTest.refusingSession(kind: "GitHub", log: TestRun.AttemptLog(fileURL: folder.appending(path: "attempts.jsonl"))),
+                                  gitHubToken: { try GitHubTokenStore.load(from: store) })
+        sources.addGitHubSource(GitHubSpec(owner: "example", repo: "baseline"))
+        let id = try #require(sources.sources.first?.id)
+        for _ in 0..<200 where sources.scanErrors[id] == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(sources.scanErrors[id]?.contains("Keychain couldn’t be read") == true)
     }
 
     @Test func tokenKeepsItsKeychainNames() {

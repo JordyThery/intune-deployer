@@ -103,7 +103,7 @@ nonisolated struct PreflightService: Sendable {
                 id: "account",
                 title: "Signed-in account",
                 status: .failed,
-                message: "Couldn’t read the account or tenant: \(error.localizedDescription)"
+                message: "Couldn’t read the account or tenant: \(Stopping.describe(error))"
             ))
         }
 
@@ -132,7 +132,7 @@ nonisolated struct PreflightService: Sendable {
                     id: "mdmAuthority",
                     title: "MDM authority",
                     status: .warning,
-                    message: "Couldn’t read the MDM authority: \(error.localizedDescription)"
+                    message: "Couldn’t read the MDM authority: \(Stopping.describe(error))"
                 ))
             }
         }
@@ -193,7 +193,7 @@ nonisolated struct PreflightService: Sendable {
                 id: "apns",
                 title: "Apple MDM push certificate",
                 status: .warning,
-                message: "Couldn’t read the Apple MDM push certificate: \(error.localizedDescription)"
+                message: "Couldn’t read the Apple MDM push certificate: \(Stopping.describe(error))"
             ))
         }
 
@@ -245,7 +245,7 @@ nonisolated struct PreflightService: Sendable {
                 id: "ade",
                 title: "ADE enrollment tokens",
                 status: .warning,
-                message: "Couldn’t read the ADE tokens: \(error.localizedDescription)"
+                message: "Couldn’t read the ADE tokens: \(Stopping.describe(error))"
             ))
         }
 

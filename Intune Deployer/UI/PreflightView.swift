@@ -58,6 +58,7 @@ struct PreflightView: View {
                 )
             }
 
+            RequestWaitsBar(waits: session.waits)
             Divider()
             HStack {
                 Button("Run Again") {

@@ -25,6 +25,7 @@ struct PlanView: View {
             header
             Divider()
             content
+            RequestWaitsBar(waits: session.waits)
             Divider()
             footer
         }

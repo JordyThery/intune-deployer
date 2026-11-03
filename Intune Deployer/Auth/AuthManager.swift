@@ -125,7 +125,7 @@ final class AuthManager {
     ///   - underTest: under tests every saved tenant is refused by default.
     init(demo: DemoMode? = nil,
          makeSignIn: @escaping @MainActor (String) throws -> MicrosoftSignIn = { try MicrosoftSignIn(clientID: $0) },
-         underTest: UnderTestSignIn = TestRun.isActive ? .refuseAll(UnderTest.attempts) : .off) {
+         underTest: UnderTestSignIn = UnderTest.isActive ? .refuseAll(UnderTest.attempts) : .off) {
         self.demo = demo
         self.makeSignIn = makeSignIn
         self.underTest = underTest

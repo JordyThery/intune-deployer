@@ -56,6 +56,11 @@ struct ContentView: View {
             }
             .tourAnchor(TourAnchorID.detail)
         }
+        // Inventory and export wait here; Plan, Apply, Preflight and
+        // Remove Baseline show the same bar in their sheets.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            RequestWaitsBar(waits: session.waits)
+        }
         .toolbar {
             ToolbarItem {
                 tenantPicker

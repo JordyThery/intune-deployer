@@ -214,7 +214,8 @@ nonisolated struct AppContentUploader: Sendable {
             // SAS URIs expire; renew proactively every ~7 minutes on long
             // uploads and continue with the refreshed URI.
             if ContinuousClock.now - lastRenewal > .seconds(420) {
-                try await client.post(renewPath + "/renewUpload", version: .beta, body: Data("{}".utf8))
+                // asks for a fresh address, so sending it twice does no harm
+                try await client.post(renewPath + "/renewUpload", version: .beta, body: Data("{}".utf8), safeToRepeat: true)
                 storageURI = try await pollFile(
                     path: renewPath,
                     until: "azureStorageUriRenewalSuccess",

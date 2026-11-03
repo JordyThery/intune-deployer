@@ -72,10 +72,10 @@ extension TenantSession {
                 client: client
             )
             let needsCatalog = selected.contains { $0.item.type == .settingsCatalog }
-            let knownDefinitions = needsCatalog ? await fetchSettingDefinitionIDs(client: client) : nil
+            let knownDefinitions = needsCatalog ? try await fetchSettingDefinitionIDs(client: client) : nil
             let selectedIDs = selected.reduce(into: Set<String>()) { $0.formUnion($1.allIDs) }
-            let assignments = await fetchAssignments(of: existing, itemIDs: selectedIDs, client: client)
-            let committedFiles = await fetchCommittedFiles(of: existing[.apps] ?? [], itemIDs: selectedIDs, client: client)
+            let assignments = try await fetchAssignments(of: existing, itemIDs: selectedIDs, client: client)
+            let committedFiles = try await fetchCommittedFiles(of: existing[.apps] ?? [], itemIDs: selectedIDs, client: client)
 
             let input = PlanInput(
                 selectedItems: selected,
@@ -102,7 +102,7 @@ extension TenantSession {
             currentPlan = plan
         } catch {
             guard generation == startedGeneration else { return }
-            planError = error.localizedDescription
+            planError = Stopping.describe(error)
         }
     }
 
@@ -206,18 +206,19 @@ extension TenantSession {
     /// Plan can tell whether Apply needs to send them. An object whose
     /// assignments can't be read is left out: Apply then sends them. Custom
     /// attribute scripts have no `…/assignments` route (Graph answers 400):
-    /// their assignments are read expanded.
+    /// their assignments are read expanded. Assignment filters have no
+    /// assignments, so nothing is asked for them. Stop ends the Plan.
     private func fetchAssignments(of existing: [TenantCollection: [RemoteObject]], itemIDs: Set<String>,
-                                  client: Graph.Client) async -> [String: Set<AssignmentEntry>] {
+                                  client: Graph.Client) async throws -> [String: Set<AssignmentEntry>] {
         var result: [String: Set<AssignmentEntry>] = [:]
-        for (collection, objects) in existing {
+        for (collection, objects) in existing where collection.hasAssignments {
             for object in objects where object.taggedShortID.map(itemIDs.contains) == true {
                 let path = "\(collection.listPath)/\(object.id)"
                 var entries: [Any]?
                 if collection != .customAttributes,
-                   let list = try? await client.listRaw("\(path)/assignments", version: collection.version) {
+                   let list = try await Self.unlessUnreadable({ try await client.listRaw("\(path)/assignments", version: collection.version) }) {
                     entries = list.compactMap { try? JSONSerialization.jsonObject(with: $0) }
-                } else if let body = try? await client.getRaw("\(path)?$expand=assignments", version: collection.version),
+                } else if let body = try await Self.unlessUnreadable({ try await client.getRaw("\(path)?$expand=assignments", version: collection.version) }),
                           let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                           let expanded = dict["assignments"] as? [Any] {
                     entries = expanded
@@ -234,15 +235,27 @@ extension TenantSession {
     /// so Plan can tell whether the package in the tenant is the file. An
     /// app whose files can't be read is left out (no check).
     private func fetchCommittedFiles(of apps: [RemoteObject], itemIDs: Set<String>,
-                                     client: Graph.Client) async -> [String: [CommittedFile]] {
+                                     client: Graph.Client) async throws -> [String: [CommittedFile]] {
         var result: [String: [CommittedFile]] = [:]
         for app in apps where app.taggedShortID.map(itemIDs.contains) == true {
             guard let version = PlanEngine.committedContentVersion(of: app) else { continue }
             let path = "deviceAppManagement/mobileApps/\(app.id)/microsoft.graph.mobileLobApp/contentVersions/\(version)/files"
-            guard let bodies = try? await client.listRaw(path, version: .beta) else { continue }
+            guard let bodies = try await Self.unlessUnreadable({ try await client.listRaw(path, version: .beta) }) else { continue }
             result[app.id.lowercased()] = bodies.compactMap(CommittedFile.init(graph:))
         }
         return result
+    }
+
+    /// The answer, or nil when the read failed; a stop is thrown, so Stop
+    /// ends the Plan instead of reading on without the answer.
+    nonisolated private static func unlessUnreadable<T: Sendable>(_ read: () async throws -> T) async throws -> T? {
+        do {
+            return try await read()
+        } catch where Stopping.isStop(error) {
+            throw error
+        } catch {
+            return nil
+        }
     }
 
     nonisolated private static func remoteObject(from body: Data) -> RemoteObject? {
@@ -386,14 +399,14 @@ extension TenantSession {
 
     /// Fetches valid setting definition IDs for validation. Returns nil when
     /// unavailable (plan shows a warning instead of failing).
-    private func fetchSettingDefinitionIDs(client: Graph.Client) async -> Set<String>? {
+    private func fetchSettingDefinitionIDs(client: Graph.Client) async throws -> Set<String>? {
         // TODO(verify): the $filter/$top parameters on configurationSettings
         // are not documented on Learn (the endpoint itself is). The portal
         // uses a platform filter; try that first, fall back to an unfiltered
         // paged fetch, and skip validation when both fail.
         let filtered = "deviceManagement/configurationSettings?$select=id&$top=1000"
             + "&$filter=(platforms has 'macOS' or platforms has 'iOS') and technologies has 'mdm'"
-        if let ids = try? await client.list(SettingDefinition.self, filtered, version: .beta) {
+        if let ids = try await Self.unlessUnreadable({ try await client.list(SettingDefinition.self, filtered, version: .beta) }) {
             return Set(ids.map(\.id))
         }
         do {
@@ -403,6 +416,8 @@ extension TenantSession {
                 version: .beta
             )
             return Set(all.map(\.id))
+        } catch where Stopping.isStop(error) {
+            throw error
         } catch {
             Self.deployLogger.warning("Settings Catalog fetch failed; skipping validation: \(error.localizedDescription)")
             return nil
@@ -436,6 +451,18 @@ extension TenantSession {
         func report(_ title: String, _ outcome: ApplyResult.Outcome) {
             applyResults?.append(ApplyResult(title: title, outcome: outcome))
         }
+        // Stop (a wait before a retry ended) ends the Apply: the stopped
+        // step is reported as such, and nothing after it is sent.
+        var stopped = false
+        func fail(_ title: String, _ error: any Error) {
+            if Stopping.isStop(error) {
+                stopped = true
+                report(title, .skipped(Stopping.sentence))
+            } else {
+                report(title, .failure(error.localizedDescription))
+            }
+        }
+        defer { if stopped { report("Apply", .skipped(Stopping.rest)) } }
 
         let tenant = profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
         guard plan.profileID == profile.id, plan.tenantID == tenant else {
@@ -451,7 +478,7 @@ extension TenantSession {
             client = try await writeClient(for: profile,
                                            scopes: GraphScopes.applyScopes(allowGroupCreation: profile.allowGroupCreation))
         } catch {
-            report("Tenant check", .failure(error.localizedDescription))
+            fail("Tenant check", error)
             return true
         }
         var createdGroupIDs: [String: String] = [:]
@@ -465,22 +492,24 @@ extension TenantSession {
             nonisolated struct MeID: Decodable, Sendable { let id: String }
             _ = try await client.get(MeID.self, "me?$select=id", version: .v1)
         } catch {
-            report("Write permission", .failure(error.localizedDescription))
+            fail("Write permission", error)
             return true
         }
 
         // 1. Missing groups (opt-in).
         for group in plan.groupsToCreate {
+            if stopped { break }
             do {
                 createdGroupIDs[group.name] = try await createGroup(named: group.name, profile: profile, client: client)
                 report("Create group “\(group.name)”", .success)
             } catch {
-                report("Create group “\(group.name)”", .failure(error.localizedDescription))
+                fail("Create group “\(group.name)”", error)
             }
         }
 
         // 2. Built-in template filters.
         for filter in plan.filtersToCreate {
+            if stopped { break }
             do {
                 let body: [String: Any] = [
                     "@odata.type": "#microsoft.graph.deviceAndAppManagementAssignmentFilter",
@@ -498,12 +527,13 @@ extension TenantSession {
                 createdFilterIDs[filter.name] = Self.objectID(from: response)
                 report("Create filter “\(filter.name)”", .success)
             } catch {
-                report("Create filter “\(filter.name)”", .failure(error.localizedDescription))
+                fail("Create filter “\(filter.name)”", error)
             }
         }
 
         // 3. Objects in deployment order.
         for action in plan.actions {
+            if stopped { break }
             do {
                 switch action.kind {
                 case .create:
@@ -522,7 +552,7 @@ extension TenantSession {
                             try await uploadAppContent(action: action, appID: newID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)
                         } catch {
-                            report("Upload content for \(action.displayName)", .failure(error.localizedDescription))
+                            fail("Upload content for \(action.displayName)", error)
                             continue // without content, skip assignment
                         }
                     }
@@ -543,7 +573,7 @@ extension TenantSession {
                             try await uploadAppContent(action: action, appID: objectID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)
                         } catch {
-                            report("Upload content for \(action.displayName)", .failure(error.localizedDescription))
+                            fail("Upload content for \(action.displayName)", error)
                             continue
                         }
                     }
@@ -568,22 +598,24 @@ extension TenantSession {
                     }
                 }
             } catch {
-                report("\(action.kind.label) \(action.displayName)", .failure(error.localizedDescription))
+                fail("\(action.kind.label) \(action.displayName)", error)
             }
         }
 
         // 4. Orphans — only the ones the user explicitly ticked.
         for orphan in plan.orphans where deleteOrphanIDs.contains(orphan.objectID) {
+            if stopped { break }
             do {
                 try await client.delete("\(orphan.collection.listPath)/\(orphan.objectID)", version: orphan.collection.version)
                 report("Delete orphan \(orphan.displayName)", .success)
             } catch {
-                report("Delete orphan \(orphan.displayName)", .failure(error.localizedDescription))
+                fail("Delete orphan \(orphan.displayName)", error)
             }
         }
 
         // 5. Assignments, last.
         for (action, objectID) in assignmentQueue {
+            if stopped { break }
             guard let assignments = action.assignments else { continue }
             do {
                 try await assign(
@@ -596,7 +628,7 @@ extension TenantSession {
                 )
                 report("Assign \(action.displayName)", .success)
             } catch {
-                report("Assign \(action.displayName)", .failure(error.localizedDescription))
+                fail("Assign \(action.displayName)", error)
             }
         }
         return true
@@ -835,6 +867,17 @@ extension TenantSession {
             applyResults?.append(ApplyResult(title: title, outcome: outcome))
         }
         let notCounted = "Not in the count shown. Run Remove Baseline again to delete it."
+        // Stop ends Remove Baseline, as it ends an Apply.
+        var stopped = false
+        func fail(_ title: String, _ error: any Error) {
+            if Stopping.isStop(error) {
+                stopped = true
+                report(title, .skipped(Stopping.sentence))
+            } else {
+                report(title, .failure(error.localizedDescription))
+            }
+        }
+        defer { if stopped { report("Remove Baseline", .skipped("Stopped. The remaining objects weren’t deleted.")) } }
 
         // Deleting a group the profile created needs Group.ReadWrite.All,
         // even when group creation has been switched off since.
@@ -844,13 +887,15 @@ extension TenantSession {
             client = try await writeClient(for: profile, scopes: GraphScopes.applyScopes(
                 allowGroupCreation: profile.allowGroupCreation || (deletesGroups && profile.hasNamedGroups)))
         } catch {
-            report("Tenant check", .failure(error.localizedDescription))
+            fail("Tenant check", error)
             return true
         }
         for collection in TenantCollection.allCases.sorted(by: { $0.applyOrder > $1.applyOrder }) {
+            if stopped { break }
             do {
                 let objects = try await client.listRaw(collection.listPath, version: collection.version)
                 for body in objects {
+                    if stopped { break }
                     guard let object = Self.remoteObject(from: body),
                           Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
                     else { continue }
@@ -862,17 +907,19 @@ extension TenantSession {
                         try await client.delete("\(collection.listPath)/\(object.id)", version: collection.version)
                         report("Delete \(object.displayName)", .success)
                     } catch {
-                        report("Delete \(object.displayName)", .failure(error.localizedDescription))
+                        fail("Delete \(object.displayName)", error)
                     }
                 }
             } catch {
-                report("List \(collection.displayName)", .failure(error.localizedDescription))
+                fail("List \(collection.displayName)", error)
             }
         }
+        guard !stopped else { return true }
         // Last, the groups the profile names: assignments to them are gone.
         // Only this profile's empty groups are deleted; the rest are listed.
         do {
             for group in try await namedGroups(profile: profile, client: client) {
+                if stopped { break }
                 let name = group.name
                 if let reason = group.keptBecause {
                     report("Keep group “\(name)”", .skipped(reason))
@@ -887,11 +934,11 @@ extension TenantSession {
                     try await client.delete("groups/\(group.id)", version: .v1)
                     report("Delete group “\(name)”", .success)
                 } catch {
-                    report("Delete group “\(name)”", .failure(error.localizedDescription))
+                    fail("Delete group “\(name)”", error)
                 }
             }
         } catch {
-            report("List the groups this profile’s assignments name", .failure(error.localizedDescription))
+            fail("List the groups this profile’s assignments name", error)
         }
         return true
     }

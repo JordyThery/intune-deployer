@@ -16,11 +16,14 @@ nonisolated enum GitHubTokenStore {
     /// Where the app keeps the token: the Keychain; under tests (the unit
     /// tests' host and a sandbox run) a store in memory that starts empty,
     /// so the real token is never read or written while tests run.
-    static let appStore: any SecretStore = TestRun.isActive ? SandboxSecretStore() : keychain
+    static let appStore: any SecretStore = UnderTest.isActive ? SandboxSecretStore() : keychain
 
+    /// The saved token, or nil when none is saved.
     /// - Parameter store: the app's store; a fake in tests.
-    static func load(from store: any SecretStore = appStore) -> String? {
-        guard let token = store.secret(for: account), !token.isEmpty else { return nil }
+    /// - Throws: `SecretStoreError` when the Keychain couldn't be read (locked,
+    ///   or access refused): that isn't the same as "no token".
+    static func load(from store: any SecretStore = appStore) throws -> String? {
+        guard let token = try store.readSecret(for: account), !token.isEmpty else { return nil }
         return token
     }
 

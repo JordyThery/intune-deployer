@@ -32,6 +32,10 @@ final class TenantSession {
     // Export state (managed by TenantSession+Export).
     var isExporting = false
 
+    /// The waits before a retry of the tenant's requests (Graph and the
+    /// upload to Azure Storage), shown with Stop while they last.
+    @ObservationIgnored let waits = RequestWaits()
+
     /// Incremented by reset(); long-running loads compare it before writing
     /// results so a tenant switch discards stale data.
     var generation = 0
@@ -62,7 +66,7 @@ final class TenantSession {
         self.activityLog = activityLog
         self.demo = demo
         self.realTenantSession = realTenantSession
-            ?? (TestRun.isActive ? UnderTest.refusingSession(kind: "Graph") : .shared)
+            ?? (UnderTest.isActive ? UnderTest.refusingSession(kind: "Graph") : .shared)
         self.tokenProvider = tokenProvider
     }
 
@@ -112,8 +116,9 @@ final class TenantSession {
         } else {
             session = realTenantSession
         }
-        return Graph.Client(tokens: tokens, access: .delegated,
-                            recorder: Graph.recorder(session: session, log: activityLog, connection: profile.displayName))
+        var recorder = Graph.recorder(session: session, log: activityLog, connection: profile.displayName)
+        recorder.waits = waits
+        return Graph.Client(tokens: tokens, access: .delegated, recorder: recorder)
     }
 
     // MARK: - The tenant check
@@ -222,7 +227,7 @@ final class TenantSession {
             )
         } catch {
             checks = [PreflightCheck(id: "account", title: "Signed-in account", status: .failed,
-                                     message: error.localizedDescription)]
+                                     message: Stopping.describe(error))]
         }
         guard generation == startedGeneration else { return }
         preflightChecks = checks
@@ -243,7 +248,7 @@ final class TenantSession {
         } catch {
             guard generation == startedGeneration else { return }
             inventory = [:]
-            for collection in TenantCollection.allCases { inventoryErrors[collection] = error.localizedDescription }
+            for collection in TenantCollection.allCases { inventoryErrors[collection] = Stopping.describe(error) }
             return
         }
 
@@ -278,7 +283,7 @@ final class TenantSession {
                     }
                 case .failure(let error):
                     inventory[collection] = nil
-                    inventoryErrors[collection] = error.localizedDescription
+                    inventoryErrors[collection] = Stopping.describe(error)
                 }
             }
         }

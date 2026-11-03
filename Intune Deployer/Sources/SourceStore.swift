@@ -32,7 +32,7 @@ final class SourceStore {
     var fileLocation: URL { file.fileURL }
     private let cacheRoot: URL
     /// The GitHub token: the app's store (under tests one that starts empty).
-    private let gitHubToken: @MainActor () -> String?
+    private let gitHubToken: @MainActor () throws -> String?
     /// GitHub requests go through JTKit's request recorder into the activity log.
     private let gitHub: RequestRecorder
     /// Monotonic per-source scan counter: only the latest-started scan may
@@ -50,16 +50,16 @@ final class SourceStore {
     ///   - gitHubToken: the GitHub token; by default `GitHubTokenStore`'s.
     init(storageURL: URL? = nil, editStore: ItemEditStore? = nil, platformStore: PlatformOverrideStore? = nil,
          activityLog: ActivityLog? = nil, folder: URL? = nil, gitHubSession: URLSession? = nil,
-         gitHubToken: (@MainActor () -> String?)? = nil) {
+         gitHubToken: (@MainActor () throws -> String?)? = nil) {
         let gitHubSession = gitHubSession
-            ?? (TestRun.isActive ? UnderTest.refusingSession(kind: "GitHub") : .shared)
+            ?? (UnderTest.isActive ? UnderTest.refusingSession(kind: "GitHub") : .shared)
         // Application Support/Intune Deployer; under the unit tests a temporary folder.
         let base = folder ?? UnderTest.dataFolder
         let storageURL = storageURL ?? base.appendingPathComponent("sources.json")
         self.file = SavedList(fileURL: storageURL, name: "sources")
         self.identityFile = SavedList(fileURL: storageURL.deletingLastPathComponent().appendingPathComponent("source-identities.json"),
                                       name: "source identities")
-        self.gitHubToken = gitHubToken ?? { GitHubTokenStore.load() }
+        self.gitHubToken = gitHubToken ?? { try GitHubTokenStore.load() }
         self.cacheRoot = base.appendingPathComponent("GitHubSources", isDirectory: true)
         self.edits = editStore ?? ItemEditStore(storageURL: folder?.appendingPathComponent("item-edits.json"))
         self.platformOverrides = platformStore
@@ -270,7 +270,7 @@ final class SourceStore {
         defer { scanningSourceIDs.remove(sourceID) }
 
         do {
-            let token = gitHubToken()
+            let token = try gitHubToken()
             let info = try await GitHubClient.fetchRepoInfo(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let releases = try await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let release = GitHubClient.pickRelease(from: releases, tagPrefix: spec.tagPrefix)
@@ -325,7 +325,14 @@ final class SourceStore {
     func checkGitHubUpdates() async {
         let gitHubSources = sources.filter(\.isGitHub).map(\.id)
         guard !gitHubSources.isEmpty else { return }
-        let token = gitHubToken()
+        // A Keychain that can't be read skips the check; Sync Now says why.
+        let token: String?
+        do {
+            token = try gitHubToken()
+        } catch {
+            Self.logger.error("GitHub update check skipped: \(error.localizedDescription)")
+            return
+        }
         for sourceID in gitHubSources {
             guard let spec = sources.first(where: { $0.id == sourceID })?.gitHubSpec,
                   let releases = try? await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token,

@@ -126,7 +126,7 @@ nonisolated struct Plan: Sendable {
 // MARK: - Apply results
 
 nonisolated struct ApplyResult: Sendable, Identifiable {
-    enum Outcome: Sendable {
+    enum Outcome: Sendable, Equatable {
         case success
         case failure(String)
         case skipped(String)

@@ -62,8 +62,8 @@ struct IntuneDeployerApp: App {
             emptyDescription: "Graph, GitHub and upload requests appear here as they happen."
         )
 
-        // JTKit's General tab starts with Appearance; item editing goes below
-        // it. Connections and GitHub follow, and JTKit adds Updates last.
+        // General holds item editing; Connections and GitHub follow, and
+        // JTKit adds Updates last.
         SettingsWindow(updates: updates, opensTabsByName: true) {
             SettingsContent.general
         } tabs: {

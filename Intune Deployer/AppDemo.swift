@@ -23,22 +23,29 @@ enum AppDemo {
     /// (JTKit's release check): the real tenants, the tenant in use, sources,
     /// settings and the tour are never read or written, GitHub is blocked
     /// and there is no update check.
-    static var isSandboxed: Bool { DemoMode.isSandboxLaunch || TestRun.isUnitTestHost }
+    /// A launch under the release check's live-check switch
+    /// (`-JTKitLiveCheck`) counts as one too.
+    static var isSandboxed: Bool { DemoMode.isSandboxLaunch || TestRun.isUnitTestHost || LiveLaunch.isSwitched }
+
+    /// Where a sandboxed launch keeps its tenants and sources: demo mode's
+    /// temporary folder; under the live-check switch the run's folder for
+    /// app files (`UnderTest.dataFolder`).
+    private static var sandboxFolder: URL { LiveLaunch.isSwitched ? UnderTest.dataFolder : mode.scratchDirectory }
 
     /// The saved tenants for this launch: when sandboxed an empty list in
-    /// demo mode's temporary folder, so the real ones and the tenant in use
-    /// are never read or written.
+    /// the sandbox folder, so the real ones and the tenant in use are never
+    /// read or written.
     static func tenantStore() -> TenantStore {
         guard isSandboxed else { return TenantStore(demo: mode) }
-        return TenantStore(storageURL: mode.scratchDirectory.appendingPathComponent("tenants.json"),
+        return TenantStore(storageURL: sandboxFolder.appendingPathComponent("tenants.json"),
                            defaults: sandboxedDefaults(), demo: mode)
     }
 
-    /// The baseline sources for this launch: when sandboxed in demo mode's
-    /// temporary folder, with GitHub blocked (public lookups are off there).
+    /// The baseline sources for this launch: when sandboxed in the sandbox
+    /// folder, with GitHub blocked (public lookups are off there).
     static func sourceStore(activityLog: ActivityLog) -> SourceStore {
         guard isSandboxed else { return SourceStore(activityLog: activityLog) }
-        return SourceStore(activityLog: activityLog, folder: mode.scratchDirectory,
+        return SourceStore(activityLog: activityLog, folder: sandboxFolder,
                            gitHubSession: DemoNetwork(servers: [:]).session)
     }
 

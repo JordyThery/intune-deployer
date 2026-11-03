@@ -22,6 +22,11 @@ nonisolated enum UnderTest {
     /// release check empties it before every run.
     static let folder = TestRun.attemptsFolder(named: "IntuneDeployer-under-test")
 
+    /// Under tests (JTKit's `TestRun.isActive`), or launched under the
+    /// release check's live-check switch (`-JTKitLiveCheck`), where saved
+    /// tenants and real Keychain items are never reached either.
+    static var isActive: Bool { TestRun.isActive || LiveLaunch.isSwitched }
+
     /// The message a refused attempt gives.
     static let refusal = "Refused under tests: a saved tenant and GitHub are never reached while tests run."
 
@@ -40,12 +45,21 @@ nonisolated enum UnderTest {
         TestRun.refusingSession(log: log, kind: kind, message: refusal)
     }
 
-    /// Where the app keeps its files: Application Support/Intune Deployer,
-    /// or in the unit-test host a folder of this process in the temporary
-    /// folder, so neither the hosted app nor a test can write the real
-    /// `tenants.json`, `sources.json`, item edits, platform choices or GitHub
-    /// cache (removed when the process ends).
-    static let dataFolder: URL = TestRun.isUnitTestHost ? unitTestHostFolder : realDataFolder
+    /// Where the app keeps its files: Application Support/Intune Deployer;
+    /// in the unit-test host a folder of this process in the temporary
+    /// folder (removed when the process ends); under the release check's
+    /// live-check switch (`-JTKitLiveCheck`) the run's folder for app files
+    /// (JTKit's `LiveLaunch.appFilesFolder`). So neither the hosted app, a
+    /// test nor a switched launch can write the real `tenants.json`,
+    /// `sources.json`, item edits, platform choices or GitHub cache.
+    static let dataFolder: URL = {
+        if TestRun.isUnitTestHost { return unitTestHostFolder }
+        if let live = LiveLaunch.appFilesFolder("Intune Deployer") {
+            try? FileManager.default.createDirectory(at: live, withIntermediateDirectories: true)
+            return live
+        }
+        return realDataFolder
+    }()
 
     /// Application Support/Intune Deployer. Under tests only read, by the
     /// live checks (the saved tenant of the allow-listed tenant).
