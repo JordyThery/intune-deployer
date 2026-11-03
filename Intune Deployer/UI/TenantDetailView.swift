@@ -17,8 +17,9 @@ struct TenantDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     Image(systemName: "building.2")
-                        .font(.system(size: 28))
+                        .font(.largeTitle)
                         .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(profile.displayName)
                             .font(.title2.bold())
@@ -47,13 +48,15 @@ struct TenantDetailView: View {
                             ForEach(checks) { check in
                                 HStack(spacing: 8) {
                                     Image(systemName: check.status.symbolName)
-                                        .foregroundStyle(check.status == .ok ? .green : check.status == .warning ? .yellow : .red)
+                                        .foregroundStyle(check.status == .ok ? .green : check.status == .warning ? .orange : .red)
                                         .accessibilityLabel(check.status.accessibilityName)
                                     Text(check.title)
                                     Spacer()
                                 }
                                 .font(.callout)
                                 .help(check.message)
+                                .accessibilityElement(children: .combine)
+                                .accessibilityHint(check.message)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

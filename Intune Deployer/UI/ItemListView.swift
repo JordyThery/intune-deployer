@@ -158,10 +158,13 @@ struct ItemListView: View {
                     Image(systemName: allIncluded
                         ? "checkmark.square.fill"
                         : includedShownCount == 0 ? "square" : "minus.square.fill")
+                        .frame(minWidth: 20, minHeight: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .help(allIncluded ? "Exclude all shown items" : "Include all shown items")
                 .accessibilityLabel(allIncluded ? "Exclude all shown items" : "Include all shown items")
+                .accessibilityValue(allIncluded ? "All included" : includedShownCount == 0 ? "None included" : "Some included")
             }
             Text("Items")
             Spacer()
@@ -255,8 +258,9 @@ private struct ItemRow: View {
                 .labelsHidden()
                 .disabled(!hasActiveProfile)
                 .help(hasActiveProfile ? "" : "Select a tenant profile to choose items for deployment")
+            // secondary, not the tint: it stays visible in a highlighted row
             Image(systemName: item.type.symbolName)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.secondary)
                 .frame(width: 20)
                 .help(item.type.displayName)
                 .accessibilityHidden(true) // type is in the row text
@@ -275,6 +279,8 @@ private struct ItemRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            // one element for VoiceOver; the checkbox stays its own control
+            .accessibilityElement(children: .combine)
             Spacer()
             if let edit {
                 if edit.hasConflict {

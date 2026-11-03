@@ -63,11 +63,14 @@ struct AssignmentTargetsEditor: View {
                 } label: {
                     Image(systemName: "minus.circle.fill")
                         .foregroundStyle(.secondary)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .disabled(targets.count == 1)
                 .help(targets.count == 1 ? "At least one target is required" : "Remove this target")
-                .accessibilityLabel("Remove target")
+                .accessibilityLabel(target.scope == .group && !target.trimmedGroupName.isEmpty
+                    ? "Remove \(target.trimmedGroupName)" : "Remove target \(index + 1)")
             }
 
             // Exclusions carry no filter and no install intent.
@@ -86,6 +89,8 @@ struct AssignmentTargetsEditor: View {
                                 Button("Use Built-in ADE Filter Template") { applyTemplate(index) }
                             } label: {
                                 Image(systemName: "sparkles")
+                                    .frame(minWidth: 20, minHeight: 20)
+                                    .contentShape(Rectangle())
                             }
                             .menuStyle(.borderlessButton)
                             .fixedSize()

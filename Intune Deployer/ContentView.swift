@@ -16,12 +16,15 @@ struct ContentView: View {
     @State private var platformFilter: ItemPlatform?
     @State private var authErrorMessage: String?
     @State private var showingPlan = false
+    @State private var isPickingFolder = false
+    @State private var isAddingGitHubSource = false
     /// The saved-data problems already shown, so each is shown once.
     @State private var shownProblems: Set<String> = []
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $sidebarSelection)
+            SidebarView(selection: $sidebarSelection, isPickingFolder: $isPickingFolder,
+                        isAddingGitHubSource: $isAddingGitHubSource)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } content: {
             if let profile = selectedSidebarTenant {
@@ -66,24 +69,23 @@ struct ContentView: View {
                 tenantPicker
             }
             ToolbarItem {
+                // ⌘R is on the menu item (Tenant › Refresh Sources)
                 Button {
                     Task { await store.rescanAll() }
                 } label: {
                     Label("Refresh Sources", systemImage: "arrow.clockwise")
                 }
-                .keyboardShortcut("r", modifiers: .command)
                 .help("Rescan all sources (⌘R)")
-                .disabled(store.sources.isEmpty || !store.scanningSourceIDs.isEmpty)
+                .disabled(!canRefresh)
             }
             ToolbarItem {
+                // ⌘P is on the menu item (Tenant › Plan…)
                 Button {
-                    session.currentPlan = nil
-                    showingPlan = true
+                    startPlan()
                 } label: {
                     Label("Plan", systemImage: "list.bullet.clipboard")
                 }
-                .keyboardShortcut("p", modifiers: .command)
-                .help("Dry run: compute what would change in the tenant in use (⌘P)")
+                .help(planDisabledReason ?? "Dry run: compute what would change in the tenant in use (⌘P)")
                 .disabled(!canPlan)
             }
             ToolbarItem {
@@ -103,6 +105,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Intune Deployer")
+        .focusedSceneValue(\.mainWindow, menuActions)
         .alert("Sign-In Failed", isPresented: Binding(
             get: { authErrorMessage != nil },
             set: { if !$0 { authErrorMessage = nil } }
@@ -182,6 +185,7 @@ struct ContentView: View {
                 } label: {
                     Label("Account", systemImage: "person.crop.circle.badge.checkmark")
                 }
+                .accessibilityValue("Signed in as \(account.username)")
                 .help("\(profile.displayName): signed in as \(account.username). \(DemoMode.helpText)")
             } else if let account = auth.account(for: profile) {
                 Menu {
@@ -193,6 +197,7 @@ struct ContentView: View {
                 } label: {
                     Label("Account", systemImage: "person.crop.circle.badge.checkmark")
                 }
+                .accessibilityValue("Signed in as \(account.username)")
                 .help("\(profile.displayName): signed in as \(account.username)")
             } else {
                 Button {
@@ -243,13 +248,48 @@ struct ContentView: View {
         store.items(for: Set(store.sources.map(\.id)))
     }
 
-    private var canPlan: Bool {
-        guard let profile = tenantStore.selectedProfile else { return false }
-        return auth.isSignedIn(profile)
-            && !profile.selectedItemIDs.isEmpty
-            && store.scanningSourceIDs.isEmpty
-            && !session.isApplying
-            && !session.isPlanning
+    private var canPlan: Bool { planDisabledReason == nil }
+
+    /// Why Plan is dimmed, shown as its tooltip; nil when it can run.
+    private var planDisabledReason: String? {
+        guard let profile = tenantStore.selectedProfile else { return "Choose a tenant in the toolbar first" }
+        if !auth.isSignedIn(profile) { return "Sign in to \(profile.displayName) first" }
+        if profile.selectedItemIDs.isEmpty { return "Include at least one item first" }
+        if !store.scanningSourceIDs.isEmpty { return "Wait for the sources to finish scanning" }
+        if session.isApplying { return "Apply is still running" }
+        if session.isPlanning { return "Plan is already running" }
+        return nil
+    }
+
+    private var canRefresh: Bool {
+        !store.sources.isEmpty && store.scanningSourceIDs.isEmpty
+    }
+
+    private func startPlan() {
+        session.currentPlan = nil
+        showingPlan = true
+    }
+
+    /// The menu bar's commands for this window (`MainCommands`).
+    private var menuActions: MainWindowActions {
+        let profile = tenantStore.selectedProfile
+        var signInAction: (() -> Void)?
+        var signOutAction: (title: String, action: () -> Void)?
+        if let profile, !profile.isDemo {
+            if auth.isSignedIn(profile) {
+                signOutAction = ("Sign Out of \(profile.displayName)", { Task { await auth.signOut(profile: profile) } })
+            } else if !auth.signingInProfileIDs.contains(profile.id) {
+                signInAction = { Task { await signIn(profile: profile) } }
+            }
+        }
+        return MainWindowActions(
+            plan: canPlan ? { startPlan() } : nil,
+            refreshSources: canRefresh ? { Task { await store.rescanAll() } } : nil,
+            signIn: signInAction,
+            signOut: signOutAction,
+            addFolder: { isPickingFolder = true },
+            addGitHubRepository: { isAddingGitHubSource = true }
+        )
     }
 
     private var unshownProblems: [String] {

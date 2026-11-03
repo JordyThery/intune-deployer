@@ -226,8 +226,8 @@ nonisolated struct ResolvedAssignment: Sendable, Hashable {
 nonisolated enum AssignmentBody {
     /// Scripts use deviceManagementScriptAssignments, apps
     /// mobileAppAssignments, other collections assignments.
-    /// TODO(verify): the configurationPolicies assign body shape follows the
-    /// documented sibling actions; its own doc page is unpublished.
+    /// The configurationPolicies assign body shape follows the documented
+    /// sibling actions (its own doc page is unpublished); checked live.
     static func parameterName(for collection: TenantCollection) -> String {
         switch collection {
         case .shellScripts, .customAttributes: "deviceManagementScriptAssignments"

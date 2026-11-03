@@ -82,6 +82,18 @@ final class DemoSmokeUITests: JTKitUITestCase {
         checkDemoTitles()
     }
 
+    /// The toolbar's commands and the sidebar's add buttons are in the menu bar too.
+    func test8MenuCommands() {
+        tap(app.menuBars.menuBarItems["Tenant"], timeout: 10)
+        XCTAssertTrue(app.menuItems["Plan…"].waitForExistence(timeout: 5), "Tenant › Plan… is missing")
+        XCTAssertTrue(app.menuItems["Refresh Sources"].exists, "Tenant › Refresh Sources is missing")
+        app.typeKey(.escape, modifierFlags: [])
+        tap(app.menuBars.menuBarItems["File"], timeout: 10)
+        XCTAssertTrue(app.menuItems["Add Folder…"].waitForExistence(timeout: 5), "File › Add Folder… is missing")
+        XCTAssertTrue(app.menuItems["Add GitHub Repository…"].exists, "File › Add GitHub Repository… is missing")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     // MARK: Helpers
 
     /// Writes three baseline files into the test's folder, adds it as a

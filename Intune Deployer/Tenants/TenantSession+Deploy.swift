@@ -150,8 +150,8 @@ extension TenantSession {
                 group.addTask {
                     // Compliance scheduled actions are a navigation property;
                     // without the expand they are missing from the diff.
-                    // TODO(verify): this $expand is portal/community practice,
-                    // not documented on the list page.
+                    // This $expand is portal practice, not documented on the
+                    // list page; the live check relies on it (2026-11-03).
                     let path = collection == .compliancePolicies
                         ? "\(collection.listPath)?$expand=scheduledActionsForRule($expand=scheduledActionConfigurations)"
                         : collection.listPath
@@ -403,15 +403,9 @@ extension TenantSession {
     /// Fetches valid setting definition IDs for validation. Returns nil when
     /// unavailable (plan shows a warning instead of failing).
     private func fetchSettingDefinitionIDs(client: Graph.Client) async throws -> Set<String>? {
-        // TODO(verify): the $filter/$top parameters on configurationSettings
-        // are not documented on Learn (the endpoint itself is). The portal
-        // uses a platform filter; try that first, fall back to an unfiltered
-        // paged fetch, and skip validation when both fail.
-        let filtered = "deviceManagement/configurationSettings?$select=id&$top=1000"
-            + "&$filter=(platforms has 'macOS' or platforms has 'iOS') and technologies has 'mdm'"
-        if let ids = try await Self.unlessUnreadable({ try await client.list(SettingDefinition.self, filtered, version: .beta) }) {
-            return Set(ids.map(\.id))
-        }
+        // Graph refuses a $filter on configurationSettings (HTTP 400, checked
+        // live on 2026-11-03), so the IDs are read unfiltered, paged; when that
+        // fails, validation is skipped with a warning.
         do {
             let all = try await client.list(
                 SettingDefinition.self,
@@ -672,9 +666,9 @@ extension TenantSession {
         let path = "\(action.collection.listPath)/\(objectID)"
         switch action.collection {
         case .settingsCatalog:
-            // TODO(verify): replacing a Settings Catalog policy incl. settings
-            // via PUT is what the Intune portal does, but Learn documents only
-            // PATCH (without settings) and per-setting navigation CRUD.
+            // Replacing a Settings Catalog policy incl. settings via PUT is what
+            // the Intune portal does; Learn documents only PATCH (without
+            // settings) and per-setting CRUD. Checked live on 2026-11-03.
             try await client.put(path, version: .beta, body: action.payload)
 
         case .compliancePolicies:

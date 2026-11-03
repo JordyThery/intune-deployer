@@ -57,10 +57,15 @@ struct ItemEditorView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let validationError {
-                    Label(validationError, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: 320, alignment: .trailing)
+                    Label {
+                        Text(validationError)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .symbolRenderingMode(.multicolor)
+                            .accessibilityLabel("Error")
+                    }
+                    .font(.callout)
+                    .frame(maxWidth: 320, alignment: .trailing)
                 }
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -105,6 +110,8 @@ struct ItemEditorView: View {
         switch ItemEditValidation.validate(text: text, for: item) {
         case .invalid(let message):
             validationError = message
+            // Save did nothing: VoiceOver says why
+            AccessibilityNotification.Announcement(message).post()
         case .valid(let data):
             validationError = nil
             store.edits.save(ItemEdit(

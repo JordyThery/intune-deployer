@@ -75,8 +75,9 @@ struct ItemDetailView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: item.type.symbolName)
-                .font(.system(size: 28))
+                .font(.largeTitle)
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayName)
                     .font(.title2.bold())
@@ -258,7 +259,7 @@ struct ItemDetailView: View {
                         .foregroundStyle(.secondary)
                 } else if let previewText {
                     Text(previewText)
-                        .font(.caption.monospaced())
+                        .font(.callout.monospaced())
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {

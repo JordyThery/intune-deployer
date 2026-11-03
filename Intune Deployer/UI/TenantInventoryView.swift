@@ -89,6 +89,7 @@ struct TenantInventoryView: View {
                     ProgressView()
                         .controlSize(.small)
                         .help("Exporting…")
+                        .accessibilityLabel("Exporting")
                 } else {
                     Button {
                         beginExport(allExportable)
@@ -134,9 +135,11 @@ struct TenantInventoryView: View {
 
     private func row(_ object: TenantObject, collection: TenantCollection) -> some View {
         HStack {
+            // the section header names the type
             Image(systemName: collection.symbolName)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.secondary)
                 .frame(width: 20)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(object.resolvedName)
                 if let modified = object.lastModifiedDateTime {
@@ -152,7 +155,8 @@ struct TenantInventoryView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.tint.opacity(0.15), in: Capsule())
-                    .help("Created by Intune Deployer — identity tag \(ItemIdentity.tag(forShortID: shortID))")
+                    .help("Created by Intune Deployer. Identity tag \(ItemIdentity.tag(forShortID: shortID))")
+                    .accessibilityLabel("Managed by Intune Deployer")
             }
         }
     }

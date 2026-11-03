@@ -60,11 +60,14 @@ struct BaselineSettingsView: View {
                                 .font(.callout.monospaced())
                                 .frame(minWidth: 160, alignment: .leading)
                             TextField("Value", text: variableBinding(for: key))
+                                .accessibilityLabel("Value for \(key)")
                             Button {
                                 profile.variables[key] = nil
                             } label: {
                                 Image(systemName: "minus.circle.fill")
                                     .foregroundStyle(.secondary)
+                                    .frame(minWidth: 20, minHeight: 20)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.borderless)
                             .help("Remove this variable")

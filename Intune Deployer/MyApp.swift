@@ -55,6 +55,9 @@ struct IntuneDeployerApp: App {
         }
         .commands {
             AppInfoCommands(appName: "Intune Deployer") { updates.checkManually() }
+            SidebarCommands()
+            ToolbarCommands()
+            MainCommands()
             CommandGroup(after: .help) {
                 Button("Guided Tour") { tour.start() }
             }

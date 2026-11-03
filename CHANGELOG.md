@@ -7,10 +7,12 @@
 - A new or imported tenant profile becomes the one in use when no tenant is in use yet.
 - Settings › Connections says when a tenant ID is neither a tenant ID nor a domain.
 - A new app icon in the macOS icon shape.
+- Plan, Refresh Sources, Sign In and Sign Out are in a new Tenant menu, and Add Folder… and Add GitHub Repository… in the File menu. The View menu can show or hide the sidebar and the toolbar. Plan’s tooltip says why it’s dimmed.
 
 ### Changed
 - Tenants are compared by the tenant ID Microsoft’s sign-in names, so a profile with the tenant’s domain and one with its tenant ID count as the same tenant. This also applies to recognizing objects deployed before version 1.6 by a profile without a naming prefix.
 - The as-built report masks a variable’s value only where the variable is used, so the same text elsewhere in a payload stays readable. Scripts and profiles with variables are now shown masked instead of left out.
+- Plan changes, warnings and Apply results are easier to read: larger text, with colors on symbols instead of on the text. VoiceOver reads rows, progress and controls more clearly.
 - Reading a large app package at plan time gets more time (five minutes plus a minute per GB), and a package that takes longer says so.
 
 ### Fixed

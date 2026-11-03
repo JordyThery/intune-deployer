@@ -33,6 +33,12 @@ struct ApplyDeletionsSheet: View {
                     .font(.callout.bold())
                 // no Return shortcut: a destructive button is never the default (HIG)
                 TextField("Type \(deletions) to confirm", text: $typed, prompt: Text(verbatim: "\(deletions)"))
+                // why Apply is still dimmed, once something is typed
+                if let problem, !typed.isEmpty {
+                    Text(problem)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
 

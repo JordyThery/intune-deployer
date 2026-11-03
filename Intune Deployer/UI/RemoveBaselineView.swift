@@ -25,6 +25,7 @@ struct RemoveBaselineView: View {
                 Spacer()
                 if session.isApplying {
                     ProgressView().controlSize(.small)
+                        .accessibilityLabel("Deleting")
                 }
             }
             .padding()

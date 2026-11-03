@@ -14,6 +14,7 @@ struct PreflightView: View {
                 Spacer()
                 if session.isRunningPreflight {
                     ProgressView().controlSize(.small)
+                        .accessibilityLabel("Running checks")
                 }
             }
             .padding()
@@ -34,12 +35,11 @@ struct PreflightView: View {
                                 .foregroundStyle(.secondary)
                             if let guidance = check.guidance {
                                 Text(guidance)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.callout)
                             }
                             if let link = check.link {
                                 Link(link.host() ?? link.absoluteString, destination: link)
-                                    .font(.caption)
+                                    .font(.callout)
                             }
                         }
                     }
@@ -82,7 +82,7 @@ struct PreflightView: View {
     private func color(for status: PreflightCheck.Status) -> Color {
         switch status {
         case .ok: .green
-        case .warning: .yellow
+        case .warning: .orange
         case .failed: .red
         }
     }

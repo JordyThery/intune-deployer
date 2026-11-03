@@ -36,8 +36,9 @@ struct MultiItemDetailView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "square.on.square")
-                .font(.system(size: 28))
+                .font(.largeTitle)
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(items.count) Items")
                     .font(.title2.bold())

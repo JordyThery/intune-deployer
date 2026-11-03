@@ -13,9 +13,9 @@ struct SidebarView: View {
     @Environment(SourceStore.self) private var store
     @Environment(TenantStore.self) private var tenantStore
     @Binding var selection: Set<SidebarSelection>
-
-    @State private var isPickingFolder = false
-    @State private var isAddingGitHubSource = false
+    /// Also set from File › Add Folder… and Add GitHub Repository….
+    @Binding var isPickingFolder: Bool
+    @Binding var isAddingGitHubSource: Bool
 
     var body: some View {
         List(selection: $selection) {
@@ -133,6 +133,7 @@ struct SidebarView: View {
             if store.scanningSourceIDs.contains(source.id) {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("Scanning \(source.name)")
             } else if store.scanErrors[source.id] != nil {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .symbolRenderingMode(.multicolor)

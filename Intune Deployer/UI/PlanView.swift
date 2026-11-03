@@ -57,6 +57,7 @@ struct PlanView: View {
             Spacer()
             if session.isPlanning || session.isApplying {
                 ProgressView().controlSize(.small)
+                    .accessibilityLabel(session.isApplying ? "Applying" : "Planning")
             }
         }
         .padding()
@@ -101,7 +102,7 @@ struct PlanView: View {
             }
 
             if !plan.groupsToCreate.isEmpty || !plan.filtersToCreate.isEmpty {
-                Section("Prerequisites to create") {
+                Section("Prerequisites to Create") {
                     ForEach(plan.groupsToCreate) { group in
                         Label("Group “\(group.name)”", systemImage: "person.3")
                     }
@@ -172,9 +173,16 @@ struct PlanView: View {
             }
             if let results = session.applyResults, !session.isApplying {
                 let failures = results.count(where: \.isFailure)
-                Text(ApplyResult.summary(results))
-                    .font(.callout)
-                    .foregroundStyle(failures == 0 ? Color.secondary : .red)
+                // the color is on the symbol; the text stays readable
+                Label {
+                    Text(ApplyResult.summary(results))
+                        .foregroundStyle(failures == 0 ? Color.secondary : .primary)
+                } icon: {
+                    if failures > 0 {
+                        Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+                    }
+                }
+                .font(.callout)
             }
             Spacer()
             if session.applyResults != nil, !session.isApplying {
@@ -284,9 +292,11 @@ private struct PlanActionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
+                // the collection's name follows as text
                 Image(systemName: action.collection.symbolName)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
+                    .accessibilityHidden(true)
                 Text(action.displayName)
                 Spacer()
                 if let assignments = action.assignments {
@@ -296,15 +306,21 @@ private struct PlanActionRow: View {
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
                         .help(assignments.map(AsBuiltReport.targetDescription).joined(separator: "\n"))
+                        .accessibilityHint(assignments.map(AsBuiltReport.targetDescription).joined(separator: ", "))
                 }
                 Text(action.collection.displayName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             ForEach(action.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Label {
+                    Text(warning)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .symbolRenderingMode(.multicolor)
+                        .accessibilityLabel("Warning")
+                }
+                .font(.callout)
             }
             if case .update(let changes) = action.kind, !changes.isEmpty || !action.settingChanges.isEmpty {
                 DisclosureGroup(isExpanded: $expanded) {
@@ -335,7 +351,7 @@ private struct PlanActionRow: View {
                     }
                 } label: {
                     Text(changeSummary(changes))
-                        .font(.caption)
+                        .font(.callout)
                 }
             }
         }
@@ -353,10 +369,12 @@ private struct PlanActionRow: View {
     }
 
     private func rawChangeRow(_ change: FieldChange) -> some View {
+        // − and + carry the meaning; the color is on the symbols only, so
+        // the values keep full contrast
         VStack(alignment: .leading, spacing: 1) {
-            Text(change.path).font(.caption.monospaced().bold())
-            Text("− \(change.oldValue)").font(.caption.monospaced()).foregroundStyle(.red)
-            Text("+ \(change.newValue)").font(.caption.monospaced()).foregroundStyle(.green)
+            Text(change.path).font(.callout.monospaced().bold())
+            changeLine("minus.circle.fill", .red, "− \(change.oldValue)", spoken: "Old value: \(change.oldValue)")
+            changeLine("plus.circle.fill", .green, "+ \(change.newValue)", spoken: "New value: \(change.newValue)")
         }
         .padding(.vertical, 1)
         .textSelection(.enabled)
@@ -376,16 +394,30 @@ private struct PlanActionRow: View {
         case .added: "Added: \(value(change.newValue))"
         case .removed: "Removed (was \(value(change.oldValue)))"
         }
+        let symbol: (name: String, color: Color) = switch change.kind {
+        case .changed: ("arrow.right.circle.fill", .blue)
+        case .added: ("plus.circle.fill", .green)
+        case .removed: ("minus.circle.fill", .red)
+        }
         return VStack(alignment: .leading, spacing: 1) {
             Text(names.joined(separator: " › "))
-                .font(.caption.bold())
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(change.kind == .removed ? .red : change.kind == .added ? .green : .primary)
+                .font(.callout.bold())
+            changeLine(symbol.name, symbol.color, detail, spoken: detail)
         }
         .padding(.vertical, 1)
         .help(change.definitionID)
         .textSelection(.enabled)
+    }
+
+    /// One line of a change: a colored symbol, then the text in the primary color.
+    private func changeLine(_ symbol: String, _ color: Color, _ text: String, spoken: String) -> some View {
+        Label {
+            Text(text).font(.callout.monospaced())
+        } icon: {
+            Image(systemName: symbol).foregroundStyle(color)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
     }
 
     private func settingName(_ definitionID: String) -> String {
@@ -435,18 +467,20 @@ struct ApplyResultsList: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.title)
                     if case .failure(let message) = result.outcome {
-                        Text(message).font(.caption).foregroundStyle(.secondary)
+                        Text(message).font(.callout)
                     }
                     if case .skipped(let reason) = result.outcome {
-                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                        Text(reason).font(.callout).foregroundStyle(.secondary)
                     }
                 }
             }
+            .accessibilityElement(children: .combine)
         }
         .overlay(alignment: .bottom) {
             if isRunning {
                 ProgressView()
                     .padding()
+                    .accessibilityLabel("Applying")
             }
         }
     }

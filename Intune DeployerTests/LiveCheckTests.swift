@@ -583,16 +583,12 @@ struct LiveLifecycleTests {
         }
         try require("Plan assigns only to the test group (never All devices, All users or another group)", onlyTheGroup,
                     note: "\(assigned.count) assigned objects")
-        // The Settings Catalog check reads the tenant's setting IDs with a
-        // platform $filter and $top (undocumented, WATCHLIST): recorded, as
-        // Plan falls back to the unfiltered read when Graph refuses it.
-        let filteredReads = tenant.log.entries.filter {
-            $0.request?.url.contains("configurationSettings?") == true && $0.request?.url.contains("filter=") == true
-        }
-        run.record(step: step("Settings Catalog setting IDs read with $filter and $top"),
-                   passed: true,
-                   note: filteredReads.contains { $0.status == 200 } ? "answered (HTTP 200)"
-                       : filteredReads.isEmpty ? "not sent" : "refused (HTTP \(filteredReads.compactMap(\.status).map(String.init).joined(separator: ", "))): Plan used the unfiltered read")
+        // The Settings Catalog check reads the tenant's setting IDs (paged,
+        // no $filter: Graph refuses one with 400, checked live 2026-11-03).
+        let settingReads = tenant.log.entries.filter { $0.request?.url.contains("configurationSettings?") == true }
+        try require("Plan reads the tenant's setting IDs, every request answered",
+                    !settingReads.isEmpty && settingReads.allSatisfy { $0.status == 200 },
+                    note: "HTTP \(settingReads.compactMap(\.status).map(String.init).joined(separator: ", "))")
         let othersTagged = plan.orphans.count
         // Only this run's profile's objects can be orphans (bug 2): the
         // tenant's other Intune Deployer objects aren't listed at all.
