@@ -285,12 +285,15 @@ nonisolated enum AppPackageInspector {
 
     // MARK: - Helpers
 
-    /// Runs a helper tool with stderr merged into stdout, draining the pipe
-    /// before waiting so large output cannot deadlock the process. Nothing
-    /// can be typed into it (a disk image's license agreement would wait for
-    /// an answer), and it is stopped after `timeout` seconds.
+    /// Runs a helper tool with stderr merged into stdout, collecting its
+    /// output as it comes so large output cannot deadlock the process.
+    /// Nothing can be typed into it (a disk image's license agreement would
+    /// wait for an answer), and it is stopped after `timeout` seconds.
+    /// - Parameter killGracePeriod: how long it gets to stop after the time
+    ///   limit before it's killed.
     @discardableResult
-    static func run(_ tool: String, _ arguments: [String], timeout: TimeInterval = 300) throws -> String {
+    static func run(_ tool: String, _ arguments: [String], timeout: TimeInterval = 300,
+                    killGracePeriod: TimeInterval = 5) throws -> String {
         let process = Process()
         process.executableURL = URL(filePath: tool)
         process.arguments = arguments
@@ -298,24 +301,48 @@ nonisolated enum AppPackageInspector {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        // Output is collected as it comes, so a helper (or a child it left
+        // behind) that keeps the pipe open can't block the read.
+        let output = OSAllocatedUnfairLock(initialState: Data())
+        let ended = DispatchSemaphore(value: 0)
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                ended.signal()
+            } else {
+                output.withLock { $0.append(chunk) }
+            }
+        }
         try process.run()
-        let timedOut = OSAllocatedUnfairLock(initialState: false)
+        // At the time limit: asked to stop, then, after a grace period,
+        // killed (hdiutil in the middle of a mount can ignore the request).
+        let stopped = OSAllocatedUnfairLock(initialState: false)
         let deadline = DispatchWorkItem { [process] in
             guard process.isRunning else { return }
-            timedOut.withLock { $0 = true }
+            stopped.withLock { $0 = true }
             process.terminate()
+            let pid = process.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + killGracePeriod) { [process] in
+                if process.isRunning { kill(pid, SIGKILL) }
+            }
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         process.waitUntilExit()
         deadline.cancel()
-        if timedOut.withLock({ $0 }) {
+        _ = ended.wait(timeout: .now() + 2)
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let text = String(decoding: output.withLock { $0 }, as: UTF8.self)
+        // Only a process the time limit ended: one that finished just as
+        // the limit came isn't reported as timed out.
+        if stopped.withLock({ $0 }), process.terminationReason == .uncaughtSignal {
             throw AppInspectionError.timedOut(seconds: Int(timeout.rounded()))
         }
         guard process.terminationStatus == 0 else {
-            logger.error("\(tool, privacy: .public) failed: \(output, privacy: .public)")
-            throw AppInspectionError.toolFailed(output.trimmingCharacters(in: .whitespacesAndNewlines))
+            logger.error("\(tool, privacy: .public) failed: \(text, privacy: .public)")
+            throw AppInspectionError.toolFailed(text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return output
+        return text
     }
+
 }

@@ -559,6 +559,30 @@ struct SmallerGateTests {
         }
     }
 
+    @Test("The as-built report masks a variable in an item's name, and longer values in the Apply steps' text")
+    func reportMasksNamesAndMessages() throws {
+        let item = InferredItem(id: "0a0b0c0d", sourceID: UUID(), relativePath: "scripts/site.sh", fileURL: URL(filePath: "/tmp/fixture/scripts/site.sh"),
+                                type: .compliancePolicy, displayName: "Item", detectionReason: "test")
+        var profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA)
+        profile.variables = ["SiteCode": "ZX-4471", "Short": "ab"]
+        profile.selectedItemIDs = [item.id]
+        let file = ##"{"@odata.type": "#microsoft.graph.macOSCompliancePolicy", "displayName": "Encryption {{SiteCode}}", "storageRequireEncryption": true}"##
+        let plan = PlanEngine.makePlan(input: PlanInput(selectedItems: [.init(item: item, fileData: Data(file.utf8))], profile: profile,
+                                                        existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil))
+        let action = try #require(plan.actions.first)
+        #expect(action.displayName == "Encryption ZX-4471")
+        #expect(action.reportName == "Encryption ••••")
+        let input = AsBuiltReport.Input(profileName: "Lab", tenantID: tenantA, namingPrefix: "", plan: plan,
+                                        results: [ApplyResult(title: "Create Encryption ZX-4471",
+                                                              outcome: .failure("Graph refused “ZX-4471” in about 2 places"))],
+                                        date: .now, variables: profile.variables)
+        for report in [AsBuiltReport.markdown(input), AsBuiltReport.html(input)] {
+            #expect(!report.contains("ZX-4471"), "the value shows nowhere")
+            #expect(report.contains("Encryption ••••"))
+            #expect(report.contains("about 2 places"), "a short value (ab) doesn't mask ordinary words")
+        }
+    }
+
     @Test("A helper tool gets no input and is stopped after its time")
     func helperToolTimeout() throws {
         // Without input, cat ends at once instead of waiting for a typed answer.
@@ -566,6 +590,17 @@ struct SmallerGateTests {
         #expect(throws: AppInspectionError.timedOut(seconds: 0)) { try AppPackageInspector.run("/bin/sleep", ["5"], timeout: 0.3) }
         // a failing tool is a failure, not a time-out
         #expect(throws: AppInspectionError.toolFailed("")) { try AppPackageInspector.run("/usr/bin/false", []) }
+    }
+
+    @Test("A helper tool that ignores the stop request is killed, even with a child still holding its output open")
+    func helperToolIsKilled() throws {
+        let started = Date()
+        #expect(throws: AppInspectionError.timedOut(seconds: 0)) {
+            try AppPackageInspector.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30"], timeout: 0.3, killGracePeriod: 0.5)
+        }
+        #expect(Date().timeIntervalSince(started) < 10, "the inspection returned instead of waiting for the helper")
+        // a tool that finishes on time is never reported as timed out
+        #expect(try AppPackageInspector.run("/bin/echo", ["done"], timeout: 5) == "done\n")
     }
 
     @Test("A committed file's size is read from size, the field Graph returns, before sizeInBytes")

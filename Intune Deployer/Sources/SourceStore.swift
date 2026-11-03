@@ -269,8 +269,18 @@ final class SourceStore {
         scanErrors[sourceID] = nil
         defer { scanningSourceIDs.remove(sourceID) }
 
+        // A Keychain that can't be read doesn't stop the sync: a public
+        // repository needs no token. Its problem is shown only when GitHub
+        // then refuses (a private repository, or the rate limit).
+        let token: String?
+        var tokenProblem: String?
         do {
-            let token = try gitHubToken()
+            token = try gitHubToken()
+        } catch {
+            token = nil
+            tokenProblem = error.localizedDescription
+        }
+        do {
             let info = try await GitHubClient.fetchRepoInfo(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let releases = try await GitHubClient.fetchReleases(owner: spec.owner, repo: spec.repo, token: token, recorder: gitHub)
             let release = GitHubClient.pickRelease(from: releases, tagPrefix: spec.tagPrefix)
@@ -300,7 +310,11 @@ final class SourceStore {
 
             await scanGitHubCache(sources[index])
         } catch {
-            scanErrors[sourceID] = "Sync failed: \(error.localizedDescription)"
+            var message = "Sync failed: \(error.localizedDescription)"
+            if let tokenProblem, GitHubError.isRefusal(error) {
+                message += " The saved GitHub token wasn’t used: \(tokenProblem)"
+            }
+            scanErrors[sourceID] = message
             Self.logger.error("GitHub sync failed for \(source.name, privacy: .public): \(error.localizedDescription)")
         }
     }

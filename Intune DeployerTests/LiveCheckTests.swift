@@ -488,6 +488,7 @@ struct LiveLifecycleTests {
                 case .success: nil
                 case .failure(let message): "\(result.title): \(message)"
                 case .skipped(let message): "\(result.title) skipped: \(message)"
+                case .stopped(let message): "\(result.title): \(message)"
                 }
             }
         }
@@ -751,6 +752,7 @@ struct LiveLifecycleTests {
                 case .success: nil
                 case .failure(let message): "\(result.title): \(message)"
                 case .skipped(let message): "\(result.title) skipped: \(message)"
+                case .stopped(let message): "\(result.title): \(message)"
                 }
             }
         }

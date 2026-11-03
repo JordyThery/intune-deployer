@@ -59,7 +59,7 @@ struct TenantConnectionsTab: View {
             services: [.intune],
             allowsChangingService: false,
             signInMethods: [.intune: [.microsoftInteractive]],
-            roles: [tenants.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })],
+            roles: [tenants.connectionRole(lockedWhile: { session.locksTenant })],
             height: 600,
             footer: """
             Tenant ID: Entra admin center › Overview. Client ID: the Application (client) ID of \

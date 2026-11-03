@@ -1,3 +1,4 @@
+import JTKit
 import SwiftUI
 
 /// Detail column: detected type and why, tokens, script options and a
@@ -84,12 +85,8 @@ struct ItemDetailView: View {
                 HStack(spacing: 6) {
                     Text(item.type.displayName)
                     if let edit = currentEdit {
-                        Text(edit.hasConflict ? "Edited · source changed" : "Edited")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(edit.hasConflict ? .yellow.opacity(0.3) : .blue.opacity(0.15),
-                                        in: Capsule())
+                        StatusBadge(edit.hasConflict ? "Edited · source changed" : "Edited",
+                                    style: edit.hasConflict ? .attention : .info)
                     }
                 }
                 .foregroundStyle(.secondary)

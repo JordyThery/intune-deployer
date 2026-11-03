@@ -78,6 +78,9 @@ nonisolated struct PlanInput: Sendable {
     /// naming prefix it then claims tagged objects that have no profile tag
     /// (`ItemIdentity.belongs`).
     var isOnlyProfileForTenant = false
+    /// Why objects deployed before profile tags can't be claimed (a tenant
+    /// ID isn't known); shown when such objects are left out.
+    var unclaimedOlderObjectsNote: String?
 }
 
 /// A file of an app's committed content version, as Graph returns it.
@@ -104,9 +107,9 @@ nonisolated extension PlanEngine {
     /// with "••••" for every variable, so only the places a variable filled
     /// are masked; the same payload when no variable is in it.
     static func reportPayload(of selected: PlanInput.SelectedItem, built: PayloadBuilder.Built,
-                              input: PlanInput) -> PlanItemAction.ReportPayload {
+                              input: PlanInput) -> (payload: PlanItemAction.ReportPayload, name: String?) {
         let variables = input.profile.variables.filter { !$0.value.isEmpty }
-        guard !variables.isEmpty, selected.item.type != .app else { return .same }
+        guard !variables.isEmpty, selected.item.type != .app else { return (.same, nil) }
         guard let masked = try? PayloadBuilder.build(
             item: selected.item,
             fileData: selected.fileData,
@@ -114,8 +117,12 @@ nonisolated extension PlanEngine {
             variables: variables.mapValues { _ in AsBuiltReport.mask },
             appInfo: selected.appInfo,
             profileID: input.profile.id
-        ) else { return .leftOut }
-        return masked.body == built.body ? .same : .masked(masked.body)
+        ) else {
+            // the name can't be shown masked either: hide every value in it
+            return (.leftOut, AsBuiltReport.masking(built.displayName, values: Array(variables.values), minimumLength: 1))
+        }
+        let name = masked.displayName == built.displayName ? nil : masked.displayName
+        return (masked.body == built.body ? .same : .masked(masked.body), name)
     }
 }
 
@@ -327,6 +334,7 @@ nonisolated enum PlanEngine {
                 assignmentsUpToDate = desired == remote
             }
 
+            let report = Self.reportPayload(of: selected, built: built, input: input)
             plan.actions.append(PlanItemAction(
                 id: item.id,
                 collection: built.collection,
@@ -339,7 +347,8 @@ nonisolated enum PlanEngine {
                 warnings: warnings,
                 assignmentsUpToDate: assignmentsUpToDate,
                 package: built.collection == .apps ? selected.package : nil,
-                reportPayload: Self.reportPayload(of: selected, built: built, input: input)
+                reportPayload: report.payload,
+                reportName: report.name
             ))
         }
 
@@ -357,12 +366,20 @@ nonisolated enum PlanEngine {
         // considered, and only this profile's objects are: another profile's
         // objects in the same tenant are not its orphans. An item that failed
         // to build keeps its objects.
+        var unclaimedOlder = 0
         for (collection, objects) in input.existingObjects {
             for object in objects {
-                if let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id),
-                   !failedItemIDs.contains(shortID),
-                   ItemIdentity.belongs(description: object.description, displayName: object.displayName, to: input.profile,
-                                        isOnlyProfileForTenant: input.isOnlyProfileForTenant) {
+                guard let shortID = object.taggedShortID, !matchedObjectIDs.contains(object.id),
+                      !failedItemIDs.contains(shortID) else { continue }
+                let belongs = ItemIdentity.belongs(description: object.description, displayName: object.displayName,
+                                                   to: input.profile, isOnlyProfileForTenant: input.isOnlyProfileForTenant)
+                // would be this profile's if its tenant ID were known
+                if !belongs, input.unclaimedOlderObjectsNote != nil,
+                   ItemIdentity.belongs(description: object.description, displayName: object.displayName,
+                                        to: input.profile, isOnlyProfileForTenant: true) {
+                    unclaimedOlder += 1
+                }
+                if belongs {
                     plan.orphans.append(OrphanedObject(
                         collection: collection,
                         objectID: object.id,
@@ -373,6 +390,9 @@ nonisolated enum PlanEngine {
             }
         }
         plan.orphans.sort { $0.displayName < $1.displayName }
+        if unclaimedOlder > 0, let note = input.unclaimedOlderObjectsNote {
+            plan.notes.append("\(note) (\(unclaimedOlder) object\(unclaimedOlder == 1 ? "" : "s") left out.)")
+        }
         plan.profileID = input.profile.id
         plan.tenantID = input.profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
         return plan

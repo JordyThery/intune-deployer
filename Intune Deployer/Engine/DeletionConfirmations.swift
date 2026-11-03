@@ -75,10 +75,22 @@ nonisolated enum ApplyConfirmation {
 /// What Remove Baseline says and when its delete button can be pressed.
 nonisolated enum RemoveBaselineConfirmation {
     /// Once the tagged objects are counted, with something to delete, and
-    /// the tenant's name typed exactly (capitals count, nothing trimmed).
-    static func canDelete(typedName: String, profileName: String, isApplying: Bool, objectCount: Int?) -> Bool {
-        typedName == profileName && !isApplying && (objectCount ?? 0) > 0
+    /// the tenant's name typed exactly (capitals count, nothing trimmed);
+    /// never while a Plan or an Apply runs.
+    static func canDelete(typedName: String, profileName: String, isApplying: Bool, isPlanning: Bool = false,
+                          objectCount: Int?) -> Bool {
+        typedName == profileName && !isApplying && !isPlanning && (objectCount ?? 0) > 0
     }
+
+    /// Why Delete is dimmed while another run is going; nil otherwise.
+    static func busyReason(isApplying: Bool, isPlanning: Bool) -> String? {
+        if isApplying { return "Wait for Apply to finish." }
+        if isPlanning { return "Wait for the Plan to finish." }
+        return nil
+    }
+
+    /// Said when Remove Baseline didn't start because another run was going.
+    static let refusedLine = "Remove Baseline didn’t start: a Plan or an Apply was running. Nothing was deleted. Close this and try again."
 
     /// The count, shown before anything is typed.
     static func countLine(_ count: Int) -> String {

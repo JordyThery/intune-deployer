@@ -82,6 +82,7 @@ struct TenantDetailView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .focusedSceneValue(\.tenantDetail, menuActions)
         .sheet(isPresented: $isEditing) {
             BaselineSettingsView(profile: profile)
         }
@@ -91,5 +92,17 @@ struct TenantDetailView: View {
         .sheet(isPresented: $showingRemoveBaseline) {
             RemoveBaselineView(profile: profile)
         }
+    }
+
+    /// The menu bar's commands for this view: dimmed as the buttons are,
+    /// and while any tenant sheet is open.
+    private var menuActions: TenantDetailActions {
+        guard session.presentedSheet == nil else { return TenantDetailActions() }
+        let signedIn = auth.isSignedIn(profile)
+        return TenantDetailActions(
+            baselineSettings: { isEditing = true },
+            runPreflight: signedIn ? { showingPreflight = true } : nil,
+            removeBaseline: signedIn ? { showingRemoveBaseline = true } : nil
+        )
     }
 }

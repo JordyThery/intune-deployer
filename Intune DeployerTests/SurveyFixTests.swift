@@ -310,7 +310,7 @@ struct ProfileScopeTests {
             }
         }
         let session = session(server, tokenTenant: tenantA)
-        #expect(try await session.taggedObjectCount(profile: profile) == 3)
+        #expect(try await session.removalCount(profile: profile).count == 3)
         await session.removeBaseline(profile: profile)
         #expect(Set(writes(server).map(\.path)) == ["/beta/deviceManagement/deviceShellScripts/s-mine",
                                                     "/beta/deviceManagement/assignmentFilters/f-mine", "/v1.0/groups/g-empty"])

@@ -10,12 +10,32 @@ nonisolated enum AsBuiltReport {
         let plan: Plan
         let results: [ApplyResult]
         let date: Date
+        /// The profile's variables: their values (over four characters) are
+        /// masked in the Apply steps' titles and messages, which can repeat
+        /// an item's name or a value Graph refused. Names and payloads are
+        /// masked by the plan (`PlanItemAction.reportName`, `reportPayload`).
+        var variables: [String: String] = [:]
+
+        /// A step's title or message with variable values over four
+        /// characters masked (shorter ones would hide ordinary words).
+        func masked(_ text: String) -> String {
+            AsBuiltReport.masking(text, values: Array(variables.values), minimumLength: 5)
+        }
     }
 
     /// What stands where a variable's value is: a baseline keeps its secrets
     /// (a Wi-Fi password, an API key) in variables. Only those places are
     /// masked, inside base64 content too; the same text elsewhere isn't.
     static let mask = "••••"
+
+    /// `text` with every value of at least `minimumLength` characters
+    /// replaced by the mask, longest first.
+    static func masking(_ text: String, values: [String], minimumLength: Int) -> String {
+        values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= minimumLength }
+            .sorted { $0.count > $1.count }
+            .reduce(text) { $0.replacingOccurrences(of: $1, with: mask) }
+    }
 
     /// Said above the items, in both reports.
     static let maskingNote = "Variable values are masked (••••) where a variable is used."
@@ -53,7 +73,7 @@ nonisolated enum AsBuiltReport {
         lines.append(maskingNote)
         lines.append("")
         for action in input.plan.actions {
-            lines.append("### \(mdEscape(action.displayName))")
+            lines.append("### \(mdEscape(action.reportName ?? action.displayName))")
             lines.append("")
             lines.append("| | |")
             lines.append("| --- | --- |")
@@ -81,7 +101,7 @@ nonisolated enum AsBuiltReport {
         lines.append("| Step | Result |")
         lines.append("| --- | --- |")
         for result in input.results {
-            lines.append("| \(mdEscape(result.title)) | \(mdEscape(outcomeText(result.outcome))) |")
+            lines.append("| \(mdEscape(input.masked(result.title))) | \(mdEscape(input.masked(outcomeText(result.outcome)))) |")
         }
         lines.append("")
         return lines.joined(separator: "\n")
@@ -122,7 +142,7 @@ nonisolated enum AsBuiltReport {
 
         body += "<h2>Items</h2><p class=\"meta\">\(escape(maskingNote))</p>"
         for action in input.plan.actions {
-            body += "<section><h3>\(escape(action.displayName))</h3>"
+            body += "<section><h3>\(escape(action.reportName ?? action.displayName))</h3>"
             body += "<table>"
             body += "<tr><th>Type</th><td>\(escape(action.collection.displayName))</td></tr>"
             body += "<tr><th>Action</th><td>\(escape(action.kind.label))</td></tr>"
@@ -138,7 +158,7 @@ nonisolated enum AsBuiltReport {
 
         body += "<h2>Apply Steps</h2><table><tr><th>Step</th><th>Result</th></tr>"
         for result in input.results {
-            body += "<tr><td>\(escape(result.title))</td><td>\(escape(outcomeText(result.outcome)))</td></tr>"
+            body += "<tr><td>\(escape(input.masked(result.title)))</td><td>\(escape(input.masked(outcomeText(result.outcome))))</td></tr>"
         }
         body += "</table>"
 
@@ -213,6 +233,8 @@ nonisolated enum AsBuiltReport {
         case .success: "Succeeded"
         case .failure(let message): "Failed: \(message)"
         case .skipped(let reason): "Skipped: \(reason)"
+        // the message starts with "Stopped" and says whether it may have been done
+        case .stopped(let message): message
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import JTKit
+import JTKitMSAL
 import JTKitTestSupport
 import Testing
 @testable import Intune_Deployer
@@ -164,6 +165,87 @@ struct TenantIdentityTests {
         #expect(plan.orphans.map(\.objectID) == ["legacy-1"], "the tenant was confirmed first, so the rule applies")
         #expect(store.profiles.first?.knownTenantID == tenantA)
         #expect(!server.requests.contains { $0.path.contains("assignmentFilters/") }, "\(server.requests.map(\.path))")
+    }
+}
+
+@Suite("Objects from before profile tags, when a tenant ID isn't known")
+struct UnclaimedOlderObjectsTests {
+    @MainActor
+    @Test("The Plan and Remove Baseline say why older objects aren't claimed while a tenant ID isn't known")
+    func noteWhenTenantUnknown() async throws {
+        let (store, folder) = tenantStore("unclaimed")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: domainA)
+        let other = TenantProfile(displayName: "Other", clientID: "c", tenantID: "fabrikam.example")
+        try store.connections.save(profile)
+        try store.connections.save(other)
+        #expect(store.onlyProfile(forTenantOf: profile) == .ownTenantUnknown)
+        #expect(store.unclaimedOlderObjectsNote(for: profile)?.contains("its tenant ID isn’t known yet") == true)
+        store.noteSignedInTenant(tenantA, for: profile.id, typed: domainA)
+        #expect(store.onlyProfile(forTenantOf: profile) == .otherTenantUnknown("Other"))
+        #expect(store.unclaimedOlderObjectsNote(for: profile)?.contains("“Other” may be for the same tenant") == true)
+        var prefixed = profile
+        prefixed.namingPrefix = "[LAB]"
+        #expect(store.unclaimedOlderObjectsNote(for: prefixed) == nil, "the prefix decides, not the tenant")
+
+        // an object deployed by 1.5: the item tag, no profile tag
+        let legacy: [String: Any] = ["id": "legacy-1", "displayName": "Old script", "fileName": "old.sh",
+                                     "description": "Managed by Intune Deployer [IntuneDeployer:0badc0de]",
+                                     "scriptContent": Data("echo".utf8).base64EncodedString()]
+        let legacyJSON = json(legacy)
+        let scripts = json(["value": [legacy]])
+        let server = MockServer { request in
+            if request.path.hasSuffix("/deviceShellScripts") { return .json(200, scripts) }
+            if request.path.hasSuffix("/deviceShellScripts/legacy-1") { return .json(200, legacyJSON) }
+            return .json(200, #"{"value":[]}"#)
+        }
+        let guardLog = TestRun.AttemptLog(fileURL: folder.appending(path: "guard.jsonl"))
+        let session = TenantSession(auth: AuthManager(underTest: .refuseAll(guardLog)), activityLog: ActivityLog(),
+                                    realTenantSession: server.session, tokenProvider: { _, _, _ in token(tid: tenantA) })
+        let byID = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA)
+        let note = "Objects deployed before version 1.6 aren’t counted as this tenant profile’s."
+        await session.plan(profile: byID, items: [], sourceStore: SourceStore(folder: folder.appending(path: "sources")),
+                           isOnlyProfileForTenant: false, unclaimedOlderObjectsNote: note)
+        let plan = try #require(session.currentPlan)
+        #expect(plan.orphans.isEmpty)
+        #expect(plan.notes == ["\(note) (1 object left out.)"])
+        let counted = try await session.removalCount(profile: byID, isOnlyProfileForTenant: false, unclaimedOlderObjectsNote: note)
+        #expect(counted.count == 0)
+        #expect(counted.unclaimedOlderNote == "\(note) (1 object left out.)")
+        // with the tenant known and the rule met, they're claimed and nothing is said
+        await session.plan(profile: byID, items: [], sourceStore: SourceStore(folder: folder.appending(path: "sources")),
+                           isOnlyProfileForTenant: true, unclaimedOlderObjectsNote: nil)
+        #expect(session.currentPlan?.orphans.map(\.objectID) == ["legacy-1"])
+        #expect(session.currentPlan?.notes.isEmpty == true)
+    }
+
+    @MainActor
+    @Test("A token from MSAL, at sign-in or later, tells the profile the tenant it names")
+    func receivedTokenNamesTheTenant() {
+        let guardLog = TestRun.AttemptLog(fileURL: FileManager.default.temporaryDirectory
+            .appending(path: "IntuneDeployerTests-guard-\(UUID().uuidString).jsonl"))
+        let auth = AuthManager(underTest: .refuseAll(guardLog))
+        var told: [String] = []
+        auth.onSignedInTenant = { _, tenant in told.append(tenant) }
+        let profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: domainA)
+        let account = MicrosoftAccount(username: "admin@contoso.example", identifier: "home.id")
+        auth.received(MicrosoftToken(accessToken: "opaque", scopes: ["User.Read"], account: account, tenantID: tenantA.uppercased()), for: profile)
+        #expect(told == [tenantA])
+        #expect(auth.account(for: profile)?.identifier == "home.id")
+        #expect(auth.grantedScopes(for: profile) == ["User.Read"])
+        auth.received(MicrosoftToken(accessToken: "opaque", scopes: [], account: account), for: profile)
+        #expect(told == [tenantA], "a token that names no tenant tells nothing")
+    }
+
+    @Test("Under tests or under the live-check switch, saved tenants are refused and the files go elsewhere")
+    func underTestChoices() {
+        #expect(UnderTest.isActive(underTests: false, liveCheckSwitch: true))
+        #expect(UnderTest.isActive(underTests: true, liveCheckSwitch: false))
+        #expect(!UnderTest.isActive(underTests: false, liveCheckSwitch: false))
+        let host = URL(filePath: "/tmp/host"), live = URL(filePath: "/tmp/live")
+        #expect(UnderTest.dataFolder(isUnitTestHost: true, unitTestHostFolder: { host }, liveCheckFolder: live) == host)
+        #expect(UnderTest.dataFolder(isUnitTestHost: false, unitTestHostFolder: { host }, liveCheckFolder: live) == live)
+        #expect(UnderTest.dataFolder(isUnitTestHost: false, unitTestHostFolder: { host }, liveCheckFolder: nil) == UnderTest.realDataFolder)
     }
 }
 

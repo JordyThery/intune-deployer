@@ -10,25 +10,44 @@ struct MainWindowActions {
     var signIn: (() -> Void)?
     /// Sign out of the tenant in use, with the menu item's title.
     var signOut: (title: String, action: () -> Void)?
-    var addFolder: () -> Void
-    var addGitHubRepository: () -> Void
+    var addFolder: (() -> Void)?
+    var addGitHubRepository: (() -> Void)?
+}
+
+/// The tenant view's commands, while it's shown (`TenantDetailView`). A nil
+/// action is dimmed, as its button is.
+struct TenantDetailActions {
+    var baselineSettings: (() -> Void)?
+    var runPreflight: (() -> Void)?
+    var removeBaseline: (() -> Void)?
+}
+
+/// The tenant inventory's commands, while it's shown (`TenantInventoryView`).
+struct TenantInventoryActions {
+    var reloadInventory: (() -> Void)?
+    var exportAll: (() -> Void)?
 }
 
 extension FocusedValues {
     @Entry var mainWindow: MainWindowActions?
+    @Entry var tenantDetail: TenantDetailActions?
+    @Entry var tenantInventory: TenantInventoryActions?
 }
 
 /// File › Add Folder… and Add GitHub Repository…, and the Tenant menu with
-/// Plan (⌘P), Refresh Sources (⌘R) and sign-in.
+/// Plan (⌘P), Refresh Sources (⌘R), sign-in and the tenant view's commands.
+/// Each is unavailable when its button in the window is (or isn't shown).
 struct MainCommands: Commands {
     @FocusedValue(\.mainWindow) private var actions
+    @FocusedValue(\.tenantDetail) private var detail
+    @FocusedValue(\.tenantInventory) private var inventory
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("Add Folder…") { actions?.addFolder() }
-                .disabled(actions == nil)
-            Button("Add GitHub Repository…") { actions?.addGitHubRepository() }
-                .disabled(actions == nil)
+            Button("Add Folder…") { actions?.addFolder?() }
+                .disabled(actions?.addFolder == nil)
+            Button("Add GitHub Repository…") { actions?.addGitHubRepository?() }
+                .disabled(actions?.addGitHubRepository == nil)
         }
         CommandMenu("Tenant") {
             Button("Plan…") { actions?.plan?() }
@@ -44,6 +63,18 @@ struct MainCommands: Commands {
                 Button("Sign In") { actions?.signIn?() }
                     .disabled(actions?.signIn == nil)
             }
+            Divider()
+            Button("Baseline Settings…") { detail?.baselineSettings?() }
+                .disabled(detail?.baselineSettings == nil)
+            Button("Run Preflight…") { detail?.runPreflight?() }
+                .disabled(detail?.runPreflight == nil)
+            Button("Reload Inventory") { inventory?.reloadInventory?() }
+                .disabled(inventory?.reloadInventory == nil)
+            Button("Export All…") { inventory?.exportAll?() }
+                .disabled(inventory?.exportAll == nil)
+            Divider()
+            Button("Remove Baseline…") { detail?.removeBaseline?() }
+                .disabled(detail?.removeBaseline == nil)
         }
     }
 }

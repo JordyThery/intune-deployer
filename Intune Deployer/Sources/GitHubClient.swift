@@ -21,6 +21,16 @@ nonisolated enum GitHubError: LocalizedError {
             "Couldn’t extract the downloaded archive: \(reason)"
         }
     }
+
+    /// GitHub refused the request (not found, unauthorized, forbidden):
+    /// what a missing token causes.
+    static func isRefusal(_ error: any Error) -> Bool {
+        switch error as? GitHubError {
+        case .notFound: true
+        case .http(let status, _): status == 401 || status == 403
+        default: false
+        }
+    }
 }
 
 /// Minimal GitHub REST client. Requests run unauthenticated (60 req/h) unless

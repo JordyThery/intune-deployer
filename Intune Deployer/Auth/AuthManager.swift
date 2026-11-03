@@ -241,9 +241,7 @@ final class AuthManager {
 
         let token = try await microsoft.signIn(tenantID: profile.tenantID, scopes: scopes)
         let account = SignedInAccount(token.account)
-        accountsByProfile[profile.id] = account
-        grantedScopesByProfile[profile.id] = token.scopes
-        if let tenant = token.tenantID { onSignedInTenant?(profile, tenant) }
+        received(token, for: profile)
         Self.logger.info("Signed in to \(profile.displayName, privacy: .public) as \(account.username, privacy: .private(mask: .hash))")
         return account
     }
@@ -300,10 +298,17 @@ final class AuthManager {
         let token = isLiveCheck
             ? try await microsoft.silentToken(for: account, tenantID: profile.tenantID, scopes: scopes, forceRefresh: forceRefresh)
             : try await microsoft.token(for: account, tenantID: profile.tenantID, scopes: scopes, forceRefresh: forceRefresh)
+        received(token, for: profile)
+        return IssuedToken(accessToken: token.accessToken, tenantID: token.tenantID)
+    }
+
+    /// A token from MSAL, at sign-in or later: its account, its permissions,
+    /// and the tenant it names, which the profile remembers
+    /// (`onSignedInTenant`).
+    func received(_ token: MicrosoftToken, for profile: TenantProfile) {
         accountsByProfile[profile.id] = SignedInAccount(token.account)
         grantedScopesByProfile[profile.id] = token.scopes
         if let tenant = token.tenantID { onSignedInTenant?(profile, tenant) }
-        return IssuedToken(accessToken: token.accessToken, tenantID: token.tenantID)
     }
 
     // MARK: - Private

@@ -51,6 +51,9 @@ nonisolated struct PlanItemAction: Sendable, Identifiable {
     /// The payload as the as-built report shows it: built again with "••••"
     /// for every variable, so a value is masked only where a variable put it.
     var reportPayload: ReportPayload = .same
+    /// The name as the as-built report shows it: with "••••" where a
+    /// variable is; nil when no variable is in it (or it couldn't be built).
+    var reportName: String?
 
     /// The payload for the as-built report.
     enum ReportPayload: Sendable, Equatable {
@@ -123,6 +126,8 @@ nonisolated struct Plan: Sendable {
     var filtersToCreate: [PlannedFilterCreation] = []
     var orphans: [OrphanedObject] = []
     var issues: [PlanIssue] = []
+    /// Notes above the plan, e.g. why older objects aren't offered as orphans.
+    var notes: [String] = []
     /// Names for the setting definitions the plan's setting changes refer
     /// to; filled after planning, missing entries fall back to the ID.
     var settingDefinitions: [String: SettingDefinitionInfo] = [:]
@@ -144,6 +149,10 @@ nonisolated struct ApplyResult: Sendable, Identifiable {
         case success
         case failure(String)
         case skipped(String)
+        /// Ended by Stop: `Stopping.sentence` for a step that was never
+        /// carried out, `Stopping.mayHaveBeenDone` for a change that was
+        /// sent at least once.
+        case stopped(String)
     }
 
     let id = UUID()
@@ -158,19 +167,25 @@ nonisolated struct ApplyResult: Sendable, Identifiable {
         if case .skipped = outcome { true } else { false }
     }
 
-    /// The line under finished results: skipped steps are counted apart
-    /// from the ones that were applied.
+    var isStopped: Bool {
+        if case .stopped = outcome { true } else { false }
+    }
+
+    /// The line under finished results: skipped and stopped steps are
+    /// counted apart from the ones that were applied.
     static func summary(_ results: [ApplyResult]) -> String {
         let failures = results.count(where: \.isFailure)
         let skipped = results.count(where: \.isSkipped)
-        let applied = results.count - failures - skipped
+        let stopped = results.count(where: \.isStopped)
+        let applied = results.count - failures - skipped - stopped
         func steps(_ count: Int) -> String { "\(count) step\(count == 1 ? "" : "s")" }
         if failures > 0 {
             return "\(failures) of \(steps(results.count)) failed"
         }
-        if skipped > 0 {
-            return "\(steps(applied)) applied, \(skipped) skipped"
-        }
-        return "Applied \(steps(applied)) successfully"
+        guard skipped > 0 || stopped > 0 else { return "Applied \(steps(applied)) successfully" }
+        var parts = ["\(steps(applied)) applied"]
+        if stopped > 0 { parts.append("\(stopped) stopped") }
+        if skipped > 0 { parts.append("\(skipped) skipped") }
+        return parts.joined(separator: ", ")
     }
 }

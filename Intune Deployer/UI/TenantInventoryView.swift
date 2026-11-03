@@ -1,4 +1,5 @@
 import AppKit
+import JTKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -101,6 +102,12 @@ struct TenantInventoryView: View {
                 }
             }
         }
+        .focusedSceneValue(\.tenantInventory, TenantInventoryActions(
+            reloadInventory: session.presentedSheet == nil && auth.isSignedIn(profile) && !session.isLoadingInventory
+                ? { Task { await session.loadInventory(for: profile) } } : nil,
+            exportAll: session.presentedSheet == nil && !session.isExporting && !allExportable.isEmpty
+                ? { beginExport(allExportable) } : nil
+        ))
         .fileImporter(
             isPresented: $isPickingExportFolder,
             allowedContentTypes: [.folder],
@@ -150,11 +157,7 @@ struct TenantInventoryView: View {
             }
             Spacer()
             if let shortID = object.taggedShortID {
-                Text("Managed")
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.tint.opacity(0.15), in: Capsule())
+                StatusBadge("Managed", style: .tinted)
                     .help("Created by Intune Deployer. Identity tag \(ItemIdentity.tag(forShortID: shortID))")
                     .accessibilityLabel("Managed by Intune Deployer")
             }

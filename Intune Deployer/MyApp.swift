@@ -64,7 +64,7 @@ struct IntuneDeployerApp: App {
             // The toolbar picker's items, as JTKit's Connection menu, with Demo Mode.
             ConnectionCommands(
                 store: tenantStore.connections,
-                roles: [tenantStore.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })]
+                roles: [tenantStore.connectionRole(lockedWhile: { session.locksTenant })]
             ) {
                 DemoModeSwitch(session: session)
             }
@@ -96,6 +96,6 @@ struct DemoModeSwitch: View {
 
     var body: some View {
         DemoModeToggle(demo: AppDemo.mode)
-            .disabled(session.isPlanning || session.isApplying)
+            .disabled(session.locksTenant)
     }
 }

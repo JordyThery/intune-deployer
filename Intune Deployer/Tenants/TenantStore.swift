@@ -153,16 +153,52 @@ final class TenantStore {
     /// tenant. Profiles with an empty tenant field don't count. The demo
     /// tenant is the only one for its tenant.
     func isOnlyProfile(forTenantOf profile: TenantProfile) -> Bool {
-        if profile.id == demoProfile.id { return true }
+        onlyProfile(forTenantOf: profile) == .only
+    }
+
+    /// The answer of `isOnlyProfile`, with why it's no when a tenant ID
+    /// isn't known.
+    enum OnlyProfile: Equatable {
+        case only
+        /// Another saved profile is for the same tenant.
+        case notOnly
+        /// This profile's own tenant ID isn't known (saved after a sign-in).
+        case ownTenantUnknown
+        /// Another profile, typed as a domain, never signed in: it may be
+        /// this tenant.
+        case otherTenantUnknown(String)
+    }
+
+    func onlyProfile(forTenantOf profile: TenantProfile) -> OnlyProfile {
+        if profile.id == demoProfile.id { return .only }
         let current = profiles.first { $0.id == profile.id } ?? profile
-        guard let tenant = current.knownTenantID ?? profile.knownTenantID else { return false }
-        return !profiles.contains { other in
-            guard other.id != profile.id, !other.typedTenant.isEmpty else { return false }
+        guard let tenant = current.knownTenantID ?? profile.knownTenantID else { return .ownTenantUnknown }
+        var unknown: String?
+        for other in profiles where other.id != profile.id && !other.typedTenant.isEmpty {
             guard let otherTenant = other.knownTenantID else {
                 // a domain never signed in: possibly this tenant
-                return true
+                unknown = unknown ?? other.displayName
+                continue
             }
-            return EntraTenant.isSame(typed: profile.typedTenant, signedIn: tenant, as: other.typedTenant, signedIn: otherTenant)
+            if EntraTenant.isSame(typed: profile.typedTenant, signedIn: tenant, as: other.typedTenant, signedIn: otherTenant) {
+                return .notOnly
+            }
+        }
+        return unknown.map(OnlyProfile.otherTenantUnknown) ?? .only
+    }
+
+    /// Why objects deployed before profile tags aren't this profile's,
+    /// when a tenant ID that isn't known is the reason; nil otherwise and
+    /// for a profile with a naming prefix (the prefix decides).
+    func unclaimedOlderObjectsNote(for profile: TenantProfile) -> String? {
+        guard profile.namingPrefix.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        switch onlyProfile(forTenantOf: profile) {
+        case .ownTenantUnknown:
+            return "Objects deployed before version 1.6 aren’t counted as this tenant profile’s: its tenant ID isn’t known yet. Sign out and sign in again, then try again."
+        case .otherTenantUnknown(let name):
+            return "Objects deployed before version 1.6 aren’t counted as this tenant profile’s: “\(name)” may be for the same tenant and hasn’t signed in yet. Sign in to it once, or give this profile a naming prefix."
+        case .only, .notOnly:
+            return nil
         }
     }
 

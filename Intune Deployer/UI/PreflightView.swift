@@ -72,6 +72,8 @@ struct PreflightView: View {
             .padding()
         }
         .frame(minWidth: 560, idealWidth: 560, minHeight: 480, idealHeight: 480)
+        .onAppear { session.presentedSheet = .preflight }
+        .onDisappear { session.presentedSheet = nil }
         .task {
             if session.preflightChecks == nil {
                 await session.runPreflight(for: profile)

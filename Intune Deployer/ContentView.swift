@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var showingPlan = false
     @State private var isPickingFolder = false
     @State private var isAddingGitHubSource = false
-    /// The saved-data problems already shown, so each is shown once.
+    /// The saved-data problems dismissed from the notice, so each shows once.
     @State private var shownProblems: Set<String> = []
 
     var body: some View {
@@ -62,7 +62,11 @@ struct ContentView: View {
         // Inventory and export wait here; Plan, Apply, Preflight and
         // Remove Baseline show the same bar in their sheets.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            RequestWaitsBar(waits: session.waits)
+            VStack(spacing: 0) {
+                // a notice in the window, not an alert at launch (HIG)
+                SavedDataNoticeBar(problems: unshownProblems) { shownProblems.formUnion(store.problems) }
+                RequestWaitsBar(waits: session.waits)
+            }
         }
         .toolbar {
             ToolbarItem {
@@ -122,14 +126,6 @@ struct ContentView: View {
         } message: {
             Text(tenantStore.saveError ?? "")
         }
-        .alert("Saved Data Couldn’t Be Read", isPresented: Binding(
-            get: { !unshownProblems.isEmpty },
-            set: { if !$0 { shownProblems.formUnion(store.problems) } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(unshownProblems.joined(separator: "\n\n"))
-        }
         .task {
             // Restore cached accounts for all profiles (keychain token cache).
             for profile in tenantStore.profiles {
@@ -165,7 +161,7 @@ struct ContentView: View {
     private var tenantPicker: some View {
         ConnectionPicker(
             store: tenantStore.connections,
-            role: tenantStore.connectionRole(lockedWhile: { session.isPlanning || session.isApplying })
+            role: tenantStore.connectionRole(lockedWhile: { session.locksTenant })
         ) {
             DemoModeSwitch(session: session)
         }
@@ -252,20 +248,25 @@ struct ContentView: View {
 
     /// Why Plan is dimmed, shown as its tooltip; nil when it can run.
     private var planDisabledReason: String? {
+        // a sheet on screen keeps its plan (and its as-built report)
+        if let sheet = session.presentedSheet { return sheet.closeFirst }
         guard let profile = tenantStore.selectedProfile else { return "Choose a tenant in the toolbar first" }
         if !auth.isSignedIn(profile) { return "Sign in to \(profile.displayName) first" }
         if profile.selectedItemIDs.isEmpty { return "Include at least one item first" }
         if !store.scanningSourceIDs.isEmpty { return "Wait for the sources to finish scanning" }
         if session.isApplying { return "Apply is still running" }
-        if session.isPlanning { return "Plan is already running" }
+        // the Plan sheet was closed while it ran: its requests are ending
+        if session.isPlanning { return showingPlan ? "Plan is already running" : "Stopping the last Plan…" }
         return nil
     }
 
     private var canRefresh: Bool {
-        !store.sources.isEmpty && store.scanningSourceIDs.isEmpty
+        !store.sources.isEmpty && store.scanningSourceIDs.isEmpty && session.presentedSheet == nil
     }
 
+    /// A new Plan. Never while a Plan sheet is shown: its plan stays.
     private func startPlan() {
+        guard !showingPlan, session.presentedSheet == nil, canPlan else { return }
         session.currentPlan = nil
         showingPlan = true
     }
@@ -275,7 +276,8 @@ struct ContentView: View {
         let profile = tenantStore.selectedProfile
         var signInAction: (() -> Void)?
         var signOutAction: (title: String, action: () -> Void)?
-        if let profile, !profile.isDemo {
+        // signing in or out under a tenant sheet would change its tenant
+        if let profile, !profile.isDemo, session.presentedSheet == nil {
             if auth.isSignedIn(profile) {
                 signOutAction = ("Sign Out of \(profile.displayName)", { Task { await auth.signOut(profile: profile) } })
             } else if !auth.signingInProfileIDs.contains(profile.id) {
@@ -287,8 +289,8 @@ struct ContentView: View {
             refreshSources: canRefresh ? { Task { await store.rescanAll() } } : nil,
             signIn: signInAction,
             signOut: signOutAction,
-            addFolder: { isPickingFolder = true },
-            addGitHubRepository: { isAddingGitHubSource = true }
+            addFolder: session.presentedSheet == nil ? { isPickingFolder = true } : nil,
+            addGitHubRepository: session.presentedSheet == nil ? { isAddingGitHubSource = true } : nil
         )
     }
 
@@ -318,5 +320,40 @@ struct ContentView: View {
     private var selectedItems: [InferredItem] {
         guard !selectedItemIDs.isEmpty else { return [] }
         return store.items(for: selectedSourceIDs).filter { selectedItemIDs.contains($0.id) }
+    }
+}
+
+/// Saved files the app couldn't read (copied aside, never saved over), said
+/// in the window with their details one click away.
+private struct SavedDataNoticeBar: View {
+    let problems: [String]
+    let dismiss: () -> Void
+    @State private var showsDetails = false
+
+    var body: some View {
+        if !problems.isEmpty {
+            HStack(spacing: 8) {
+                WarningLabel("Some saved data couldn’t be read. It was copied aside and isn’t saved over.")
+                    .font(.callout)
+                Spacer()
+                Button("Details…") { showsDetails = true }
+                    .popover(isPresented: $showsDetails, arrowEdge: .top) {
+                        ScrollView {
+                            Text(problems.joined(separator: "\n\n"))
+                                .font(.callout)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                        }
+                        .frame(width: 420, height: 220)
+                    }
+                Button("Dismiss") { dismiss() }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
+            .accessibilityElement(children: .contain)
+        }
     }
 }

@@ -94,6 +94,31 @@ final class DemoSmokeUITests: JTKitUITestCase {
         app.typeKey(.escape, modifierFlags: [])
     }
 
+    /// Tenant › Plan… is dimmed while the Plan sheet or the Remove Baseline
+    /// sheet is up, so it can't replace the plan on screen, and available
+    /// again once each is closed.
+    func test9PlanDimmedUnderSheets() throws {
+        try addBaseline()
+        let plan = openPlan()
+        XCTAssertFalse(tenantMenuItemIsEnabled("Plan…"), "Plan… is available while the Plan sheet is up")
+        XCTAssertFalse(tenantMenuItemIsEnabled("Remove Baseline…"), "Remove Baseline… is available while the Plan sheet is up")
+        tap(plan.buttons["Close"], timeout: 10)
+        XCTAssertTrue(waitForTenantMenuItem("Plan…", enabled: true), "Plan… isn't available after the Plan sheet closed")
+
+        // the tenant view: Remove Baseline from the menu bar, then Plan… is dimmed under it
+        let tenant = app.outlines["Sidebar"].staticTexts.matching(
+            NSPredicate(format: "value == 'Contoso Intune (Demo)' OR label == 'Contoso Intune (Demo)'")).firstMatch
+        tap(tenant, timeout: 10)
+        XCTAssertTrue(waitForTenantMenuItem("Remove Baseline…", enabled: true), "Remove Baseline… isn't in the menu bar")
+        tap(app.menuBars.menuBarItems["Tenant"], timeout: 10)
+        tap(app.menuItems["Remove Baseline…"], timeout: 5)
+        let removal = app.sheets.firstMatch
+        XCTAssertTrue(removal.waitForExistence(timeout: 10), "Remove Baseline didn't open")
+        XCTAssertFalse(tenantMenuItemIsEnabled("Plan…"), "Plan… is available while Remove Baseline is up")
+        tap(removal.buttons["Cancel"], timeout: 10)
+        XCTAssertTrue(waitForTenantMenuItem("Plan…", enabled: true), "Plan… isn't available after Remove Baseline closed")
+    }
+
     // MARK: Helpers
 
     /// Writes three baseline files into the test's folder, adds it as a
@@ -136,6 +161,24 @@ final class DemoSmokeUITests: JTKitUITestCase {
         XCTAssertTrue(plan.waitForExistence(timeout: 10), "The Plan didn't open")
         XCTAssertTrue(anyContaining("Create (").waitForExistence(timeout: 60), "The Plan shows no creates")
         return plan
+    }
+
+    /// Whether an item of the Tenant menu is enabled now (the menu is closed again).
+    private func tenantMenuItemIsEnabled(_ title: String) -> Bool {
+        tap(app.menuBars.menuBarItems["Tenant"], timeout: 10)
+        let item = app.menuItems[title].firstMatch
+        let enabled = item.waitForExistence(timeout: 5) && item.isEnabled
+        app.typeKey(.escape, modifierFlags: [])
+        return enabled
+    }
+
+    /// Waits up to 20 s for a Tenant menu item to become enabled (or not).
+    private func waitForTenantMenuItem(_ title: String, enabled: Bool) -> Bool {
+        for _ in 0..<20 {
+            if tenantMenuItemIsEnabled(title) == enabled { return true }
+            sleep(1)
+        }
+        return false
     }
 
     private func toolbarButton(_ label: String) -> XCUIElement {

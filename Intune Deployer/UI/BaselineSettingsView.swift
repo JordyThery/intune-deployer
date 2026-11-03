@@ -6,6 +6,7 @@ import SwiftUI
 struct BaselineSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TenantStore.self) private var tenantStore
+    @Environment(TenantSession.self) private var session
 
     @State private var profile: TenantProfile
     @State private var newVariableName = ""
@@ -109,6 +110,8 @@ struct BaselineSettingsView: View {
             .padding()
         }
         .frame(width: 520, height: 560)
+        .onAppear { session.presentedSheet = .baselineSettings }
+        .onDisappear { session.presentedSheet = nil }
     }
 
     /// Why this prefix needs care, when another profile uses it too.

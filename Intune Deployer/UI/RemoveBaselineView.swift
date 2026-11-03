@@ -1,3 +1,4 @@
+import JTKit
 import SwiftUI
 
 /// Deletes the tenant profile's own objects in the tenant: it first counts
@@ -10,6 +11,9 @@ struct RemoveBaselineView: View {
     let profile: TenantProfile
 
     private var isOnlyProfileForTenant: Bool { tenantStore.isOnlyProfile(forTenantOf: profile) }
+    private var unclaimedOlderObjectsNote: String? { tenantStore.unclaimedOlderObjectsNote(for: profile) }
+    /// Remove Baseline refused to start (another run was going).
+    @State private var refused = false
 
     @State private var typedName = ""
     @State private var started = false
@@ -31,7 +35,10 @@ struct RemoveBaselineView: View {
             .padding()
             Divider()
 
-            if started {
+            if started && refused {
+                ContentUnavailableView("Nothing Was Deleted", systemImage: "hand.raised",
+                                       description: Text(RemoveBaselineConfirmation.refusedLine))
+            } else if started {
                 ApplyResultsList(results: session.applyResults ?? [], isRunning: session.isApplying)
             } else {
                 Form {
@@ -62,17 +69,22 @@ struct RemoveBaselineView: View {
                     Button("Delete Tagged Objects", role: .destructive) {
                         started = true
                         Task {
-                            await session.removeBaseline(profile: profile, counted: counted,
-                                                         isOnlyProfileForTenant: isOnlyProfileForTenant)
+                            let ran = await session.removeBaseline(profile: profile, counted: counted,
+                                                                   isOnlyProfileForTenant: isOnlyProfileForTenant)
+                            refused = !ran
                         }
                     }
                     .disabled(!RemoveBaselineConfirmation.canDelete(typedName: typedName, profileName: profile.displayName,
-                                                                    isApplying: session.isApplying, objectCount: objectCount))
+                                                                    isApplying: session.isApplying, isPlanning: session.isPlanning,
+                                                                    objectCount: objectCount))
+                    .help(RemoveBaselineConfirmation.busyReason(isApplying: session.isApplying, isPlanning: session.isPlanning) ?? "")
                 }
             }
             .padding()
         }
         .frame(width: 560, height: 400)
+        .onAppear { session.presentedSheet = .removeBaseline }
+        .onDisappear { session.presentedSheet = nil }
         .task { await count() }
     }
 
@@ -82,6 +94,15 @@ struct RemoveBaselineView: View {
         if let objectCount {
             Text(RemoveBaselineConfirmation.countLine(objectCount))
                 .font(.callout.bold())
+            if let note = counted?.unclaimedOlderNote {
+                WarningLabel(note)
+                    .font(.callout)
+            }
+            if let busy = RemoveBaselineConfirmation.busyReason(isApplying: session.isApplying, isPlanning: session.isPlanning) {
+                Text(busy)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         } else if let countError {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Couldn’t count the objects.", systemImage: "exclamationmark.triangle.fill")
@@ -105,7 +126,8 @@ struct RemoveBaselineView: View {
         counted = nil
         countError = nil
         do {
-            counted = try await session.removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
+            counted = try await session.removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant,
+                                                     unclaimedOlderObjectsNote: unclaimedOlderObjectsNote)
         } catch {
             countError = Stopping.describe(error)
         }

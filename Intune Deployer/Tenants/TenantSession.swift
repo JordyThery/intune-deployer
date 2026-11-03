@@ -32,9 +32,38 @@ final class TenantSession {
     // Export state (managed by TenantSession+Export).
     var isExporting = false
 
+    /// A sheet that works on the tenant in use, while it's shown.
+    enum TenantSheet: Equatable {
+        case plan, removeBaseline, preflight, baselineSettings
+
+        /// Why a menu command that changes the plan or the tenant waits.
+        var closeFirst: String {
+            switch self {
+            case .plan: "Close the Plan first"
+            case .removeBaseline: "Close Remove Baseline first"
+            case .preflight: "Close Preflight first"
+            case .baselineSettings: "Close Baseline Settings first"
+            }
+        }
+    }
+
+    /// The tenant sheet on screen: while one is, the menu bar's Plan, sign-in
+    /// and source commands and the tenant picker are unavailable, so nothing
+    /// changes the plan or the tenant under it.
+    var presentedSheet: TenantSheet?
+
+    /// The tenant in use doesn't change now: a Plan or Apply runs, or a
+    /// tenant sheet is on screen.
+    var locksTenant: Bool { isPlanning || isApplying || presentedSheet != nil }
+
     /// The waits before a retry of the tenant's requests (Graph and the
     /// upload to Azure Storage), shown with Stop while they last.
     @ObservationIgnored let waits = RequestWaits()
+
+    /// The tenant's Settings Catalog setting IDs, read once per session and
+    /// tenant (the whole catalog is many pages), keyed by profile and tenant
+    /// field; cleared when the tenant in use changes.
+    @ObservationIgnored var settingDefinitionIDs: [String: Set<String>] = [:]
 
     /// Incremented by reset(); long-running loads compare it before writing
     /// results so a tenant switch discards stale data.
@@ -79,6 +108,7 @@ final class TenantSession {
     /// keeps writing to its own tenant and reports every step.
     func reset() {
         generation += 1
+        settingDefinitionIDs = [:]
         preflightChecks = nil
         inventory = [:]
         inventoryErrors = [:]

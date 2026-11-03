@@ -25,7 +25,12 @@ nonisolated enum UnderTest {
     /// Under tests (JTKit's `TestRun.isActive`), or launched under the
     /// release check's live-check switch (`-JTKitLiveCheck`), where saved
     /// tenants and real Keychain items are never reached either.
-    static var isActive: Bool { TestRun.isActive || LiveLaunch.isSwitched }
+    static var isActive: Bool { isActive(underTests: TestRun.isActive, liveCheckSwitch: LiveLaunch.isSwitched) }
+
+    /// `isActive` for given launch conditions (tests pass their own).
+    static func isActive(underTests: Bool, liveCheckSwitch: Bool) -> Bool {
+        underTests || liveCheckSwitch
+    }
 
     /// The message a refused attempt gives.
     static let refusal = "Refused under tests: a saved tenant and GitHub are never reached while tests run."
@@ -53,13 +58,18 @@ nonisolated enum UnderTest {
     /// test nor a switched launch can write the real `tenants.json`,
     /// `sources.json`, item edits, platform choices or GitHub cache.
     static let dataFolder: URL = {
-        if TestRun.isUnitTestHost { return unitTestHostFolder }
-        if let live = LiveLaunch.appFilesFolder("Intune Deployer") {
-            try? FileManager.default.createDirectory(at: live, withIntermediateDirectories: true)
-            return live
-        }
-        return realDataFolder
+        let folder = dataFolder(isUnitTestHost: TestRun.isUnitTestHost, unitTestHostFolder: { unitTestHostFolder },
+                                liveCheckFolder: LiveLaunch.appFilesFolder("Intune Deployer"))
+        if folder != realDataFolder { try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        return folder
     }()
+
+    /// `dataFolder` for given launch conditions (tests pass their own): the
+    /// unit-test host's folder, else the live-check switch's, else the real one.
+    static func dataFolder(isUnitTestHost: Bool, unitTestHostFolder: () -> URL, liveCheckFolder: URL?) -> URL {
+        if isUnitTestHost { return unitTestHostFolder() }
+        return liveCheckFolder ?? realDataFolder
+    }
 
     /// Application Support/Intune Deployer. Under tests only read, by the
     /// live checks (the saved tenant of the allow-listed tenant).

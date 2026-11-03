@@ -91,22 +91,12 @@ struct GitHubSourceTests {
 
     @MainActor
     @Test("A Keychain that can't be read is reported as such, not as no token")
-    func unreadableKeychainIsReported() async throws {
+    func unreadableKeychainIsReported() throws {
         let store = InMemorySecretStore()
         GitHubTokenStore.save("github_pat_test_123", to: store)
         store.refusesReads = true
         #expect(throws: SecretStoreError.self) { try GitHubTokenStore.load(from: store) }
 
-        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-keychain-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let sources = SourceStore(folder: folder, gitHubSession: UnderTest.refusingSession(kind: "GitHub", log: TestRun.AttemptLog(fileURL: folder.appending(path: "attempts.jsonl"))),
-                                  gitHubToken: { try GitHubTokenStore.load(from: store) })
-        sources.addGitHubSource(GitHubSpec(owner: "example", repo: "baseline"))
-        let id = try #require(sources.sources.first?.id)
-        for _ in 0..<200 where sources.scanErrors[id] == nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(sources.scanErrors[id]?.contains("Keychain couldn’t be read") == true)
     }
 
     @Test func tokenKeepsItsKeychainNames() {
@@ -203,5 +193,38 @@ struct GitHubSyncTests {
         releases.withLock { $0.append(#"{"tag_name":"v1.1","draft":false,"prerelease":false,"published_at":"2026-10-20T00:00:00Z"}"#) }
         await store.checkGitHubUpdates()
         #expect(store.availableUpdates[id] == "v1.1")
+    }
+
+    @MainActor
+    @Test("A Keychain that can't be read doesn't stop a public repository's sync; a refused one names the Keychain problem")
+    func unreadableKeychainSyncsWithoutToken() async throws {
+        let keychain = InMemorySecretStore()
+        GitHubTokenStore.save("github_pat_test_123", to: keychain)
+        keychain.refusesReads = true
+        let zip = try Self.zipball(files: ["scripts/hello.sh": Fixtures.plainScript])
+        let server = MockServer { request in
+            let path = request.path
+            if request.header("Authorization") != nil { return .json(500, "{}") }
+            if path.contains("/repos/example/private") { return .json(404, #"{"message":"Not Found"}"#) }
+            if path.hasSuffix("/repos/example/baseline") { return .json(200, #"{"default_branch":"main"}"#) }
+            if path.hasSuffix("/releases") { return .json(200, "[]") }
+            if path.hasSuffix("/zipball/main") { return MockResponse(status: 200, headers: ["Content-Type": "application/zip"], body: zip) }
+            return .json(404, #"{"message":"Not Found"}"#)
+        }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployerTests-keychain-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = SourceStore(activityLog: ActivityLog(), folder: folder, gitHubSession: server.session,
+                                gitHubToken: { try GitHubTokenStore.load(from: keychain) })
+        store.addGitHubSource(GitHubSpec(owner: "example", repo: "baseline"))
+        store.addGitHubSource(GitHubSpec(owner: "example", repo: "private"))
+        let ids = store.sources.map(\.id)
+        try #require(ids.count == 2)
+        for _ in 0..<250 where store.items(for: [ids[0]]).isEmpty || store.scanErrors[ids[1]] == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(store.scanErrors[ids[0]] == nil, "\(store.scanErrors[ids[0]] ?? "")")
+        #expect(store.items(for: [ids[0]]).count == 1, "the public repository synced without a token")
+        #expect(store.scanErrors[ids[1]]?.contains("The saved GitHub token wasn’t used") == true, "\(store.scanErrors[ids[1]] ?? "")")
+        #expect(store.scanErrors[ids[1]]?.contains("Keychain couldn’t be read") == true)
     }
 }

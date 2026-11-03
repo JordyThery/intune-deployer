@@ -26,9 +26,11 @@ struct PlanView: View {
             header
             Divider()
             content
+                // the ticked deletions stay as counted while their number is typed
+                .disabled(typingDeletionCount != nil)
             RequestWaitsBar(waits: session.waits)
             Divider()
-            footer
+            bottomBar
         }
         .frame(minWidth: 680, idealWidth: 680, minHeight: 560, idealHeight: 560)
         .fileExporter(
@@ -42,10 +44,13 @@ struct PlanView: View {
         ) { _ in
             reportDocument = nil
         }
+        .onAppear { session.presentedSheet = .plan }
+        .onDisappear { session.presentedSheet = nil }
         .task {
             if session.currentPlan == nil && !session.isPlanning {
                 await session.plan(profile: profile, items: items, sourceStore: sourceStore,
-                                   isOnlyProfileForTenant: tenantStore.isOnlyProfile(forTenantOf: profile))
+                                   isOnlyProfileForTenant: tenantStore.isOnlyProfile(forTenantOf: profile),
+                                   unclaimedOlderObjectsNote: tenantStore.unclaimedOlderObjectsNote(for: profile))
             }
         }
     }
@@ -83,6 +88,14 @@ struct PlanView: View {
 
     private func planList(_ plan: Plan) -> some View {
         List {
+            if !plan.notes.isEmpty {
+                Section {
+                    ForEach(plan.notes, id: \.self) { note in
+                        WarningLabel(note)
+                            .font(.callout)
+                    }
+                }
+            }
             if !plan.issues.isEmpty {
                 Section("Problems") {
                     ForEach(plan.issues) { issue in
@@ -141,9 +154,9 @@ struct PlanView: View {
                         }
                     }
                 } header: {
-                    Text("Orphaned (tagged but no longer selected)")
+                    Text("Orphaned (\(plan.orphans.count))")
                 } footer: {
-                    Text("Orphans are deleted only when ticked. Other profiles’ objects and untagged objects are never touched.")
+                    Text("Objects this tenant profile deployed for items that are no longer included. They’re deleted only when ticked. Other profiles’ objects and untagged objects are never touched.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -226,13 +239,25 @@ struct PlanView: View {
         } message: { _ in
             Text("Changes are written to the tenant through Microsoft Graph and are not undone automatically.")
         }
-        .sheet(item: $typingDeletionCount) { request in
-            ApplyDeletionsSheet(
+    }
+
+    /// The footer, or with two or more deletions ticked the typed-count
+    /// confirmation in its place.
+    @ViewBuilder
+    private var bottomBar: some View {
+        if let request = typingDeletionCount {
+            ApplyDeletionsConfirmation(
                 title: "Apply \(applySummary(request)) to “\(profile.displayName)”?",
                 deletions: request.deletions,
                 tenant: profile.displayName,
-                apply: { startApply(request) }
+                cancel: { typingDeletionCount = nil },
+                apply: {
+                    typingDeletionCount = nil
+                    startApply(request)
+                }
             )
+        } else {
+            footer
         }
     }
 
@@ -273,7 +298,8 @@ struct PlanView: View {
             namingPrefix: profile.namingPrefix,
             plan: plan,
             results: results,
-            date: .now
+            date: .now,
+            variables: profile.variables
         )
         let stamp = Date.now.formatted(.iso8601.year().month().day())
         reportType = markdown ? .plainText : .html
@@ -463,6 +489,9 @@ struct ApplyResultsList: View {
                 case .skipped:
                     Image(systemName: "minus.circle").foregroundStyle(.secondary)
                         .accessibilityLabel("Skipped")
+                case .stopped:
+                    Image(systemName: "stop.circle.fill").foregroundStyle(.orange)
+                        .accessibilityLabel("Stopped")
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.title)
@@ -471,6 +500,9 @@ struct ApplyResultsList: View {
                     }
                     if case .skipped(let reason) = result.outcome {
                         Text(reason).font(.callout).foregroundStyle(.secondary)
+                    }
+                    if case .stopped(let message) = result.outcome {
+                        Text(message).font(.callout)
                     }
                 }
             }

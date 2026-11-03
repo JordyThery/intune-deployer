@@ -13,7 +13,8 @@ extension TenantSession {
     /// asked after the tenant check, when a profile with a domain knows its
     /// tenant ID.
     func plan(profile: TenantProfile, items: [InferredItem], sourceStore: SourceStore,
-              isOnlyProfileForTenant: @autoclosure () -> Bool = false) async {
+              isOnlyProfileForTenant: @autoclosure () -> Bool = false,
+              unclaimedOlderObjectsNote: @autoclosure () -> String? = nil) async {
         guard !isApplying else {
             planError = "Apply is still running. Wait for it to finish."
             return
@@ -69,18 +70,19 @@ extension TenantSession {
         do {
             let client = try await checkedClient(for: profile, scopes: GraphScopes.planRead)
             let isOnlyProfile = isOnlyProfileForTenant()
+            let unclaimedNote = unclaimedOlderObjectsNote()
             let existing = try await fetchExistingObjects(client: client)
             let groups = try await lookUpGroups(
                 names: referencedGroupNames(profile: profile, items: selected.map(\.item)),
                 client: client
             )
             let needsCatalog = selected.contains { $0.item.type == .settingsCatalog }
-            let knownDefinitions = needsCatalog ? try await fetchSettingDefinitionIDs(client: client) : nil
+            let knownDefinitions = needsCatalog ? try await settingDefinitionIDs(for: profile, client: client) : nil
             let selectedIDs = selected.reduce(into: Set<String>()) { $0.formUnion($1.allIDs) }
             let assignments = try await fetchAssignments(of: existing, itemIDs: selectedIDs, client: client)
             let committedFiles = try await fetchCommittedFiles(of: existing[.apps] ?? [], itemIDs: selectedIDs, client: client)
 
-            let input = PlanInput(
+            var input = PlanInput(
                 selectedItems: selected,
                 profile: profile,
                 existingObjects: existing,
@@ -90,6 +92,7 @@ extension TenantSession {
                 committedFiles: committedFiles,
                 isOnlyProfileForTenant: isOnlyProfile
             )
+            input.unclaimedOlderObjectsNote = unclaimedNote
             var plan = await Task.detached(priority: .userInitiated) {
                 PlanEngine.makePlan(input: input)
             }.value
@@ -400,6 +403,17 @@ extension TenantSession {
         return result
     }
 
+    /// The tenant's setting IDs, from this session's cache or read once. The
+    /// demo tenant's are read every time: its catalog learns the selected
+    /// items' IDs before each Plan.
+    private func settingDefinitionIDs(for profile: TenantProfile, client: Graph.Client) async throws -> Set<String>? {
+        let key = "\(profile.id)|\(profile.typedTenant)"
+        if !profile.isDemo, let cached = settingDefinitionIDs[key] { return cached }
+        let ids = try await fetchSettingDefinitionIDs(client: client)
+        if !profile.isDemo, let ids { settingDefinitionIDs[key] = ids }
+        return ids
+    }
+
     /// Fetches valid setting definition IDs for validation. Returns nil when
     /// unavailable (plan shows a warning instead of failing).
     private func fetchSettingDefinitionIDs(client: Graph.Client) async throws -> Set<String>? {
@@ -451,10 +465,12 @@ extension TenantSession {
         // Stop (a wait before a retry ended) ends the Apply: the stopped
         // step is reported as such, and nothing after it is sent.
         var stopped = false
-        func fail(_ title: String, _ error: any Error) {
+        /// `changes`: the step updates, replaces or deletes (sent again
+        /// after a server error, so a stopped one may have been done).
+        func fail(_ title: String, _ error: any Error, changes: Bool = false) {
             if Stopping.isStop(error) {
                 stopped = true
-                report(title, .skipped(Stopping.sentence))
+                report(title, .stopped(changes ? Stopping.mayHaveBeenDone : Stopping.sentence))
             } else {
                 report(title, .failure(error.localizedDescription))
             }
@@ -549,7 +565,7 @@ extension TenantSession {
                             try await uploadAppContent(action: action, appID: newID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)
                         } catch {
-                            fail("Upload content for \(action.displayName)", error)
+                            fail("Upload content for \(action.displayName)", error, changes: true)
                             continue // without content, skip assignment
                         }
                     }
@@ -570,7 +586,7 @@ extension TenantSession {
                             try await uploadAppContent(action: action, appID: objectID, client: client, items: items, sourceStore: sourceStore)
                             report("Upload content for \(action.displayName)", .success)
                         } catch {
-                            fail("Upload content for \(action.displayName)", error)
+                            fail("Upload content for \(action.displayName)", error, changes: true)
                             continue
                         }
                     }
@@ -595,7 +611,7 @@ extension TenantSession {
                     }
                 }
             } catch {
-                fail("\(action.kind.label) \(action.displayName)", error)
+                fail("\(action.kind.label) \(action.displayName)", error, changes: action.kind != .create)
             }
         }
 
@@ -606,7 +622,7 @@ extension TenantSession {
                 try await client.delete("\(orphan.collection.listPath)/\(orphan.objectID)", version: orphan.collection.version)
                 report("Delete orphan \(orphan.displayName)", .success)
             } catch {
-                fail("Delete orphan \(orphan.displayName)", error)
+                fail("Delete orphan \(orphan.displayName)", error, changes: true)
             }
         }
 
@@ -625,7 +641,7 @@ extension TenantSession {
                 )
                 report("Assign \(action.displayName)", .success)
             } catch {
-                fail("Assign \(action.displayName)", error)
+                fail("Assign \(action.displayName)", error, changes: true)
             }
         }
         return true
@@ -817,6 +833,9 @@ extension TenantSession {
         var objectIDs: Set<String> = []
         /// IDs of the groups that are deleted (lowercased).
         var groupIDs: Set<String> = []
+        /// Why objects deployed before profile tags aren't counted (a tenant
+        /// ID isn't known), when some are left out for that reason.
+        var unclaimedOlderNote: String?
 
         var count: Int { objectIDs.count + groupIDs.count }
     }
@@ -824,27 +843,32 @@ extension TenantSession {
     /// Counts what Remove Baseline would delete. Reads only.
     /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`;
     /// asked after the tenant check.
-    func removalCount(profile: TenantProfile, isOnlyProfileForTenant: @autoclosure () -> Bool = false) async throws -> RemovalCount {
+    func removalCount(profile: TenantProfile, isOnlyProfileForTenant: @autoclosure () -> Bool = false,
+                      unclaimedOlderObjectsNote: @autoclosure () -> String? = nil) async throws -> RemovalCount {
         let client = try await checkedClient(for: profile, scopes: GraphScopes.planRead)
         let isOnlyProfileForTenant = isOnlyProfileForTenant()
+        let unclaimedNote = unclaimedOlderObjectsNote()
         var counted = RemovalCount()
+        var unclaimed = 0
         for collection in TenantCollection.allCases {
             for body in try await client.listRaw(collection.listPath, version: collection.version) {
-                guard let object = Self.remoteObject(from: body),
-                      Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant)
-                else { continue }
+                guard let object = Self.remoteObject(from: body) else { continue }
+                guard Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant) else {
+                    if unclaimedNote != nil, Self.isRemovable(object, in: collection, profile: profile, isOnlyProfileForTenant: true) {
+                        unclaimed += 1
+                    }
+                    continue
+                }
                 counted.objectIDs.insert(object.id.lowercased())
             }
+        }
+        if unclaimed > 0, let unclaimedNote {
+            counted.unclaimedOlderNote = "\(unclaimedNote) (\(unclaimed) object\(unclaimed == 1 ? "" : "s") left out.)"
         }
         for group in try await namedGroups(profile: profile, client: client) where group.isDeletable {
             counted.groupIDs.insert(group.id.lowercased())
         }
         return counted
-    }
-
-    /// How many objects Remove Baseline would delete.
-    func taggedObjectCount(profile: TenantProfile, isOnlyProfileForTenant: @autoclosure () -> Bool = false) async throws -> Int {
-        try await removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant()).count
     }
 
     /// Deletes this profile's tagged objects, the template filters it
@@ -869,10 +893,12 @@ extension TenantSession {
         let notCounted = "Not in the count shown. Run Remove Baseline again to delete it."
         // Stop ends Remove Baseline, as it ends an Apply.
         var stopped = false
-        func fail(_ title: String, _ error: any Error) {
+        /// `changes`: the step updates, replaces or deletes (sent again
+        /// after a server error, so a stopped one may have been done).
+        func fail(_ title: String, _ error: any Error, changes: Bool = false) {
             if Stopping.isStop(error) {
                 stopped = true
-                report(title, .skipped(Stopping.sentence))
+                report(title, .stopped(changes ? Stopping.mayHaveBeenDone : Stopping.sentence))
             } else {
                 report(title, .failure(error.localizedDescription))
             }
@@ -908,7 +934,7 @@ extension TenantSession {
                         try await client.delete("\(collection.listPath)/\(object.id)", version: collection.version)
                         report("Delete \(object.displayName)", .success)
                     } catch {
-                        fail("Delete \(object.displayName)", error)
+                        fail("Delete \(object.displayName)", error, changes: true)
                     }
                 }
             } catch {
@@ -935,7 +961,7 @@ extension TenantSession {
                     try await client.delete("groups/\(group.id)", version: .v1)
                     report("Delete group “\(name)”", .success)
                 } catch {
-                    fail("Delete group “\(name)”", error)
+                    fail("Delete group “\(name)”", error, changes: true)
                 }
             }
         } catch {
