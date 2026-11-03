@@ -110,8 +110,8 @@ struct BaselineSettingsView: View {
             .padding()
         }
         .frame(width: 520, height: 560)
-        .onAppear { session.presentedSheet = .baselineSettings }
-        .onDisappear { session.presentedSheet = nil }
+        .onAppear { session.sheetAppeared(.baselineSettings) }
+        .onDisappear { session.sheetDisappeared(.baselineSettings) }
     }
 
     /// Why this prefix needs care, when another profile uses it too.

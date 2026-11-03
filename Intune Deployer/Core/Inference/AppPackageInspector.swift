@@ -333,9 +333,10 @@ nonisolated enum AppPackageInspector {
         _ = ended.wait(timeout: .now() + 2)
         pipe.fileHandleForReading.readabilityHandler = nil
         let text = String(decoding: output.withLock { $0 }, as: UTF8.self)
-        // Only a process the time limit ended: one that finished just as
-        // the limit came isn't reported as timed out.
-        if stopped.withLock({ $0 }), process.terminationReason == .uncaughtSignal {
+        // A process the time limit stopped timed out, whatever its exit
+        // status (a tool can catch the request and exit normally); one that
+        // finished before the limit came is never asked to stop.
+        if stopped.withLock({ $0 }) {
             throw AppInspectionError.timedOut(seconds: Int(timeout.rounded()))
         }
         guard process.terminationStatus == 0 else {

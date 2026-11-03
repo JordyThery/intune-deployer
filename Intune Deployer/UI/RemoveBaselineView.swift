@@ -83,8 +83,8 @@ struct RemoveBaselineView: View {
             .padding()
         }
         .frame(width: 560, height: 400)
-        .onAppear { session.presentedSheet = .removeBaseline }
-        .onDisappear { session.presentedSheet = nil }
+        .onAppear { session.sheetAppeared(.removeBaseline) }
+        .onDisappear { session.sheetDisappeared(.removeBaseline) }
         .task { await count() }
     }
 

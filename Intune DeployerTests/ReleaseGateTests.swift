@@ -603,6 +603,29 @@ struct SmallerGateTests {
         #expect(try AppPackageInspector.run("/bin/echo", ["done"], timeout: 5) == "done\n")
     }
 
+    @Test("A tool the time limit stopped is reported as timed out, also when it exits normally on the request")
+    func stoppedToolExitingNormally() {
+        #expect(throws: AppInspectionError.timedOut(seconds: 0)) {
+            try AppPackageInspector.run("/bin/sh", ["-c", "trap 'exit 0' TERM; /bin/sleep 5 & wait"], timeout: 0.3, killGracePeriod: 3)
+        }
+    }
+
+    @Test("When the masked name can't be rebuilt, only values of five characters or more are masked in it")
+    func maskedNameFallback() throws {
+        let item = InferredItem(id: "0a0b0c0d", sourceID: UUID(), relativePath: "compliance/n.json", fileURL: URL(filePath: "/tmp/fixture/compliance/n.json"),
+                                type: .compliancePolicy, displayName: "Item", detectionReason: "test")
+        var profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA)
+        profile.variables = ["Site": "ZX-4471", "Min": "12", "Os": "macOS"]
+        profile.selectedItemIDs = [item.id]
+        // {{Min}} outside a string: the masked copy isn't valid JSON, so it can't be rebuilt
+        let file = ##"{"@odata.type": "#microsoft.graph.macOSCompliancePolicy", "displayName": "{{Os}} {{Site}} 12", "passwordMinimumLength": {{Min}}}"##
+        let plan = PlanEngine.makePlan(input: PlanInput(selectedItems: [.init(item: item, fileData: Data(file.utf8))], profile: profile,
+                                                        existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil))
+        let action = try #require(plan.actions.first)
+        #expect(action.reportPayload == .leftOut)
+        #expect(action.reportName == "•••• •••• 12", "macOS and ZX-4471 masked, the short 12 kept")
+    }
+
     @Test("A committed file's size is read from size, the field Graph returns, before sizeInBytes")
     func committedFileSize() {
         #expect(CommittedFile(graph: Data(#"{"name":"a.pkg","size":10,"sizeInBytes":99}"#.utf8))?.size == 10)

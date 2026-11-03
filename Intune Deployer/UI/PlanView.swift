@@ -44,8 +44,8 @@ struct PlanView: View {
         ) { _ in
             reportDocument = nil
         }
-        .onAppear { session.presentedSheet = .plan }
-        .onDisappear { session.presentedSheet = nil }
+        .onAppear { session.sheetAppeared(.plan) }
+        .onDisappear { session.sheetDisappeared(.plan) }
         .task {
             if session.currentPlan == nil && !session.isPlanning {
                 await session.plan(profile: profile, items: items, sourceStore: sourceStore,

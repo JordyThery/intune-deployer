@@ -52,6 +52,18 @@ final class TenantSession {
     /// changes the plan or the tenant under it.
     var presentedSheet: TenantSheet?
 
+    /// A tenant sheet appeared.
+    func sheetAppeared(_ sheet: TenantSheet) {
+        presentedSheet = sheet
+    }
+
+    /// A tenant sheet disappeared: the flag is cleared only while it still
+    /// names that sheet, so a sheet opened right after another one closed
+    /// (whose disappearing can come after the new one appearing) stays known.
+    func sheetDisappeared(_ sheet: TenantSheet) {
+        if presentedSheet == sheet { presentedSheet = nil }
+    }
+
     /// The tenant in use doesn't change now: a Plan or Apply runs, or a
     /// tenant sheet is on screen.
     var locksTenant: Bool { isPlanning || isApplying || presentedSheet != nil }

@@ -202,4 +202,20 @@ struct StopAndWaitTests {
         await session.plan(profile: profile, items: items, sourceStore: store)
         #expect(reads() == 2, "read again after the tenant in use changed")
     }
+
+    @MainActor
+    @Test("A tenant sheet clears the open-sheet flag only while the flag still names it")
+    func sheetFlag() {
+        let session = session(MockServer { _ in .json(200, "{}") })
+        session.sheetAppeared(.plan)
+        #expect(session.locksTenant)
+        // Remove Baseline opens right after the Plan closed, before the Plan's disappearing arrives
+        session.sheetAppeared(.removeBaseline)
+        session.sheetDisappeared(.plan)
+        #expect(session.presentedSheet == .removeBaseline, "the open sheet is still known")
+        #expect(session.locksTenant)
+        session.sheetDisappeared(.removeBaseline)
+        #expect(session.presentedSheet == nil)
+        #expect(!session.locksTenant)
+    }
 }

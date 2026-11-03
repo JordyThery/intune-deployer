@@ -118,8 +118,9 @@ nonisolated extension PlanEngine {
             appInfo: selected.appInfo,
             profileID: input.profile.id
         ) else {
-            // the name can't be shown masked either: hide every value in it
-            return (.leftOut, AsBuiltReport.masking(built.displayName, values: Array(variables.values), minimumLength: 1))
+            // the name can't be rebuilt masked either: hide the values over
+            // four characters in it, as in the Apply steps' titles
+            return (.leftOut, AsBuiltReport.masking(built.displayName, values: Array(variables.values), minimumLength: 5))
         }
         let name = masked.displayName == built.displayName ? nil : masked.displayName
         return (masked.body == built.body ? .same : .masked(masked.body), name)
