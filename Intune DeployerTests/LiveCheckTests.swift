@@ -18,6 +18,9 @@ import Testing
 //   app's own Plan and Apply, read back, a second Plan with nothing to do,
 //   one update, then removed with the app's own deletion path (orphans
 //   ticked in a Plan), only objects this run created.
+// - An app package (`appPackage()`, 2026-11-02): a tiny unsigned JTKTEST
+//   .pkg planned, applied with its upload (Azure Storage only at the address
+//   Graph gave for this run's app, JTKit's guard), planned again, removed.
 // - Assignments only to one empty `JTKTEST` group the run creates, 0 members
 //   checked before anything is assigned; never All devices, All users or an
 //   existing group (also refused by JTKit's guarded network, 0.12.5).
@@ -705,6 +708,168 @@ struct LiveLifecycleTests {
         #expect(tenant.runObjects().isEmpty)
         #expect(run.network.refusals.isEmpty, "\(run.network.refusals)")
         #expect(fence.refusals.isEmpty, "\(fence.refusals)")
+    }
+
+    /// An app package (regression review 2026-11-02, finding 2): a tiny
+    /// unsigned JTKTEST .pkg (no payload) is planned, applied with its
+    /// upload, planned again, and removed with the app's deletion path. The
+    /// run records what the second Plan says for the app and which fields
+    /// Graph's mobileApps list, the app itself and its committed files carry
+    /// (names and presence only, never values). No assignment is sent.
+    @Test func appPackage() async throws {
+        let run = try LiveCheckRun.current()
+        checkNoSavedTenantRequests(run, when: "before the app package")
+        let tenant = try LiveTenant(run)
+        let fence = Fence(inner: run.network.session)
+        let session = tenant.session(on: fence.session)
+
+        func step(_ name: String) -> String { "\(Role.intune): app package: \(name)" }
+        func require(_ name: String, _ passed: Bool, note: String? = nil) throws {
+            run.record(step: step(name), passed: passed, note: note)
+            if !passed { throw LiveFailure("\(step(name)): \(note ?? "failed")") }
+        }
+        func applyFailures() -> [String] {
+            (session.applyResults ?? []).compactMap { result in
+                switch result.outcome {
+                case .success: nil
+                case .failure(let message): "\(result.title): \(message)"
+                case .skipped(let message): "\(result.title) skipped: \(message)"
+                }
+            }
+        }
+
+        // 1. The smallest valid package: a component package without payload.
+        let root = try Fixtures.makeTree(files: [:])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let apps = root.appending(path: "Apps")
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let pkg = apps.appending(path: "Live Check Package.pkg")
+        _ = try AppPackageInspector.run("/usr/bin/pkgbuild", ["--nopayload", "--identifier", "be.jordythery.jtktest.livecheck",
+                                                              "--version", "1.0", pkg.path])
+        let localSize = try Data(contentsOf: pkg).count
+        let storeFolder = FileManager.default.temporaryDirectory.appending(path: "IntuneDeployer-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: storeFolder) }
+        let store = SourceStore(activityLog: tenant.log, folder: storeFolder)
+        store.addLocalFolder(at: root)
+        let sourceID = try #require(store.sources.first?.id)
+        for _ in 0..<200 where store.items(for: [sourceID]).isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let items = store.items(for: [sourceID])
+        try require("the baseline is one unsigned .pkg (\(localSize) bytes)", items.count == 1 && items.first?.type == .app,
+                    note: items.map { "\($0.type)" }.joined(separator: ", "))
+        var profile = tenant.profile
+        profile.selectedItemIDs = Set(items.map(\.id))
+
+        // 2. Plan: one create.
+        fence.set(.init(name: "Plan: reads only") { method, _ in Fence.isRead(method) })
+        var plan = try await planAgain(session, profile, items, store, { try require($0, $1, note: $2) })
+        try require("Plan: one create", !plan.hasErrors && plan.actions.count == 1 && plan.actions.first?.kind == .create,
+                    note: describe(plan))
+
+        // 3. Apply: the app's create and its content (Graph under mobileApps,
+        // Azure Storage blocks; JTKit's guard allows only the address Graph
+        // gave for this run's app).
+        fence.set(.init(name: "Apply: the app and its upload") { method, path in
+            let lowered = path.lowercased()
+            return Fence.isRead(method) || method == "PUT"
+                || ((method == "POST" || method == "PATCH") && lowered.contains("/deviceappmanagement/mobileapps"))
+        })
+        await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: store)
+        let created = tenant.runObjects().filter { $0.resource.lowercased() == "mobileapps" }
+        let uploads = fence.writes.count(where: { $0.hasPrefix("PUT ") })
+        try require("Apply: the app created and its package uploaded (unsigned), nothing failed",
+                    applyFailures().isEmpty && fence.refusals.isEmpty && created.count == 1 && uploads >= 2,
+                    note: (applyFailures() + fence.refusals + ["\(uploads) Azure Storage PUTs"]).joined(separator: "; "))
+        let appID = try #require(created.first?.id)
+
+        // 4. Second Plan, nothing changed: what it says for the app. A new
+        // try after a minute tells a delay apart from a missing field.
+        fence.set(.init(name: "Plan: reads only") { method, _ in Fence.isRead(method) })
+        func appVerdict(_ plan: Plan) -> (unchanged: Bool, note: String) {
+            guard let action = plan.actions.first else { return (false, "no action") }
+            let paths: [String] = if case .update(let changes) = action.kind { changes.map(\.path) } else { [] }
+            let note = "\(action.kind.label)" + (paths.isEmpty ? "" : " (\(paths.joined(separator: ", ")))")
+                + (action.uploadsPackage ? "; Apply would upload the package" : "")
+                + (action.warnings.isEmpty ? "" : "; warnings: \(action.warnings.joined(separator: " | "))")
+            return (action.kind == .unchanged && !action.uploadsPackage, note)
+        }
+        plan = try await planAgain(session, profile, items, store, { try require($0, $1, note: $2) })
+        let first = appVerdict(plan)
+        run.record(step: step("second Plan right after Apply"), passed: true, note: first.note)
+        var second = first
+        if !first.unchanged {
+            try await Task.sleep(for: .seconds(60))
+            plan = try await planAgain(session, profile, items, store, { try require($0, $1, note: $2) })
+            second = appVerdict(plan)
+            run.record(step: step("second Plan a minute later"), passed: true, note: second.note)
+        }
+
+        // 5. What Graph returns: field names and presence only.
+        func presence(_ object: [String: Any], _ keys: [String]) -> String {
+            keys.map { key in
+                switch object[key] {
+                case nil: "\(key): missing"
+                case is NSNull: "\(key): null"
+                case let text as String where text.isEmpty: "\(key): empty"
+                default: "\(key): present"
+                }
+            }.joined(separator: ", ")
+        }
+        func fieldNames(_ object: [String: Any]) -> String { object.keys.sorted().joined(separator: " ") }
+        let appKeys = ["@odata.type", "committedContentVersion", "fileName", "size", "primaryBundleId", "primaryBundleVersion",
+                       "includedApps", "publishingState", "uploadState", "isAssigned"]
+        let listed = try await tenant.api.listRaw("deviceAppManagement/mobileApps", version: .beta)
+            .compactMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            .first { ($0["id"] as? String)?.lowercased() == appID.lowercased() }
+        run.record(step: step("Graph's mobileApps list (beta) for the app"), passed: listed != nil,
+                   note: listed.map { presence($0, appKeys) + "; all fields: " + fieldNames($0) } ?? "the app isn't in the list")
+        let single = (try? JSONSerialization.jsonObject(with: try await tenant.api.getRaw("deviceAppManagement/mobileApps/\(appID)",
+                                                                                          version: .beta))) as? [String: Any] ?? [:]
+        run.record(step: step("Graph's app read one by one (beta)"), passed: !single.isEmpty,
+                   note: presence(single, appKeys) + "; all fields: " + fieldNames(single))
+        let version = (listed?["committedContentVersion"] as? String) ?? (single["committedContentVersion"] as? String)
+        if let version, !version.isEmpty {
+            let files = try await tenant.api.listRaw(
+                "deviceAppManagement/mobileApps/\(appID)/microsoft.graph.mobileLobApp/contentVersions/\(version)/files", version: .beta)
+                .compactMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            let sizes = files.map { file in
+                let size = ((file["sizeInBytes"] ?? file["size"]) as? NSNumber)?.intValue
+                return size == nil ? "no size" : (size == localSize ? "size equals the local file" : "size differs from the local file")
+            }
+            run.record(step: step("the committed content version's files (beta)"), passed: !files.isEmpty,
+                       note: "\(files.count) files; " + files.map {
+                           presence($0, ["name", "size", "sizeInBytes", "sizeEncrypted", "sizeEncryptedInBytes", "isCommitted", "uploadState"])
+                       }.joined(separator: " / ") + "; " + sizes.joined(separator: ", ")
+                       + "; all fields: " + (files.first.map(fieldNames) ?? ""))
+        } else {
+            run.record(step: step("the committed content version's files (beta)"), passed: false,
+                       note: "no committed content version in the list or the single read")
+        }
+
+        // 6. Removal with the app's own deletion path.
+        var emptied = profile
+        emptied.selectedItemIDs = []
+        plan = try await planAgain(session, emptied, items, store, { try require($0, $1, note: $2) })
+        let ticked = plan.orphans.filter { $0.objectID.lowercased() == appID.lowercased() }
+        try require("the deletion Plan lists the app as an orphan", ticked.count == 1, note: "\(plan.orphans.count) orphans")
+        fence.set(.init(name: "Apply: delete this run's app") { method, path in
+            Fence.isRead(method) || (method == "DELETE" && Fence.segments(path).last?.lowercased() == appID.lowercased())
+        })
+        await session.apply(profile: emptied, plan: plan, deleteOrphanIDs: Set(ticked.map(\.objectID)), items: items, sourceStore: store)
+        var gone = false
+        do {
+            _ = try await tenant.api.getRaw("deviceAppManagement/mobileApps/\(appID)", version: .beta)
+        } catch where isGone(error) {
+            gone = true
+        }
+        try require("Apply deletes the app; read back: gone", applyFailures().isEmpty && fence.refusals.isEmpty && gone
+                        && tenant.runObjects().isEmpty, note: (applyFailures() + fence.refusals).joined(separator: "; "))
+
+        // 7. The question: the second Plan with nothing changed.
+        checkNoSavedTenantRequests(run, when: "after the app package")
+        try require("second Plan, nothing changed: the app is unchanged, no upload planned", second.unchanged, note: second.note)
+        #expect(run.network.refusals.isEmpty, "\(run.network.refusals)")
     }
 
     private func planAgain(_ session: TenantSession, _ profile: TenantProfile, _ items: [InferredItem], _ store: SourceStore,
