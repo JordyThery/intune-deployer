@@ -29,7 +29,9 @@ final class ReadmeScreenshotsUITests: JTKitUITestCase {
     func testReadmeScreenshots() throws {
         try addBaseline()
         // An item's details next to the list: its name, not its checkbox.
-        let item = app.staticTexts.matching(NSPredicate(format: "value == 'Rosetta 2' OR label == 'Rosetta 2'")).firstMatch
+        // the row's texts are one element for VoiceOver: "Rosetta 2, Shell Script, …"
+        let item = app.windows.firstMatch.descendants(matching: .any)
+            .matching(NSPredicate(format: "elementType == %d AND (value BEGINSWITH 'Rosetta 2' OR label BEGINSWITH 'Rosetta 2')", XCUIElement.ElementType.staticText.rawValue)).firstMatch
         tap(item, timeout: 10)
         sleep(2)
         save("browser")
