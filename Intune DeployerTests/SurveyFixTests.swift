@@ -74,9 +74,9 @@ private func scriptPlan(profile: TenantProfile? = nil, existing: [TenantCollecti
 @Suite("Bug 5: every write needs a token of the profile's tenant")
 struct TenantCheckTests {
     @Test func readsTheTokensTenant() {
-        #expect(TenantCheck.tenantID(ofAccessToken: token(tid: tenantA.uppercased())) == tenantA)
-        #expect(TenantCheck.tenantID(ofAccessToken: token(tid: nil)) == nil)
-        #expect(TenantCheck.tenantID(ofAccessToken: "not-a-jwt") == nil)
+        #expect(EntraToken.tenantID(ofAccessToken: token(tid: tenantA.uppercased())) == tenantA)
+        #expect(EntraToken.tenantID(ofAccessToken: token(tid: nil)) == nil)
+        #expect(EntraToken.tenantID(ofAccessToken: "not-a-jwt") == nil)
     }
 
     @Test("A token of another tenant: Apply sends nothing")

@@ -118,6 +118,9 @@ final class AuthManager {
     /// step, like consent in a real tenant.
     private var demoScopes: [String] = GraphScopes.tenantRead
     @ObservationIgnored let underTest: UnderTestSignIn
+    /// Told the tenant ID each sign-in's token names (MSAL's tenant
+    /// profile, else the token's `tid`), so the profile remembers it.
+    @ObservationIgnored var onSignedInTenant: (@MainActor (TenantProfile, String) -> Void)?
 
     /// - Parameters:
     ///   - demo: the app's demo mode; nil without demo mode.
@@ -233,6 +236,7 @@ final class AuthManager {
         let account = SignedInAccount(token.account)
         accountsByProfile[profile.id] = account
         grantedScopesByProfile[profile.id] = token.scopes
+        if let tenant = token.tenantID { onSignedInTenant?(profile, tenant) }
         Self.logger.info("Signed in to \(profile.displayName, privacy: .public) as \(account.username, privacy: .private(mask: .hash))")
         return account
     }
@@ -284,6 +288,7 @@ final class AuthManager {
             : try await microsoft.token(for: account, tenantID: profile.tenantID, scopes: scopes, forceRefresh: forceRefresh)
         accountsByProfile[profile.id] = SignedInAccount(token.account)
         grantedScopesByProfile[profile.id] = token.scopes
+        if let tenant = token.tenantID { onSignedInTenant?(profile, tenant) }
         return token.accessToken
     }
 

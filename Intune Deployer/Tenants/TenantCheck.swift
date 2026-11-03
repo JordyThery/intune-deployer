@@ -1,4 +1,5 @@
 import Foundation
+import JTKit
 
 /// The tenant of an access token, checked before anything is sent with it:
 /// a profile's sign-in could otherwise
@@ -21,21 +22,9 @@ nonisolated enum TenantCheck {
         }
     }
 
-    /// The `tid` claim of a JWT access token, lowercased; nil when it has none.
-    static func tenantID(ofAccessToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2 else { return nil }
-        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        while payload.count % 4 != 0 { payload += "=" }
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tenant = claims["tid"] as? String else { return nil }
-        return tenant.lowercased()
-    }
-
     /// Throws unless the token is for the `expected` tenant ID.
     static func require(_ token: String, isFor expected: String, profile: TenantProfile) throws {
-        guard let tenant = tenantID(ofAccessToken: token) else { throw Failure.unreadable }
+        guard let tenant = EntraToken.tenantID(ofAccessToken: token) else { throw Failure.unreadable }
         guard tenant == expected.lowercased() else { throw Failure.otherTenant(profile: profile.displayName) }
     }
 }

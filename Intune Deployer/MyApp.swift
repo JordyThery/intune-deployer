@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct IntuneDeployerApp: App {
     @State private var sourceStore: SourceStore
-    @State private var tenantStore = AppDemo.tenantStore()
+    @State private var tenantStore: TenantStore
     @State private var auth: AuthManager
     @State private var activityLog: ActivityLog
     @State private var session: TenantSession
@@ -16,12 +16,22 @@ struct IntuneDeployerApp: App {
     @State private var tour = AppDemo.tour()
 
     init() {
+        let tenants = AppDemo.tenantStore()
         let auth = AuthManager(demo: AppDemo.mode)
         let log = ActivityLog()
+        let session = TenantSession(auth: auth, activityLog: log, demo: AppDemo.mode)
+        // A profile remembers the tenant ID its sign-in named, so tenants are
+        // compared by it, not as typed.
+        let remember: @MainActor (TenantProfile, String) -> Void = { profile, tenantID in
+            tenants.noteSignedInTenant(tenantID, for: profile.id, typed: profile.tenantID)
+        }
+        auth.onSignedInTenant = remember
+        session.onTenantConfirmed = remember
+        _tenantStore = State(initialValue: tenants)
         _sourceStore = State(initialValue: AppDemo.sourceStore(activityLog: log))
         _auth = State(initialValue: auth)
         _activityLog = State(initialValue: log)
-        _session = State(initialValue: TenantSession(auth: auth, activityLog: log, demo: AppDemo.mode))
+        _session = State(initialValue: session)
     }
 
     var body: some Scene {

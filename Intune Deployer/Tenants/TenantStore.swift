@@ -141,17 +141,43 @@ final class TenantStore {
         }
     }
 
-    /// Whether no other saved profile has this profile's tenant ID (trimmed,
-    /// ignoring case). Only then does a profile without a naming prefix claim
-    /// objects deployed before profile tags. False for an empty tenant ID.
-    /// The demo tenant is the only one for its tenant.
+    /// Whether no other saved profile is for this profile's tenant. Only
+    /// then does a profile without a naming prefix claim objects deployed
+    /// before profile tags. Tenants are compared by the tenant ID Microsoft's
+    /// sign-in named (`knownTenantID`, JTKit's `EntraTenant.isSame`), so a
+    /// profile with the tenant's domain and one with its tenant ID are the
+    /// same tenant. As this decides what may be deleted, an unknown counts
+    /// as the same tenant: this profile's own tenant ID must be known (Plan
+    /// and Remove Baseline ask after their tenant check), and another
+    /// profile with a domain that never signed in counts as possibly this
+    /// tenant. Profiles with an empty tenant field don't count. The demo
+    /// tenant is the only one for its tenant.
     func isOnlyProfile(forTenantOf profile: TenantProfile) -> Bool {
         if profile.id == demoProfile.id { return true }
-        let tenantID = profile.tenantID.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !tenantID.isEmpty else { return false }
-        return !profiles.contains {
-            $0.id != profile.id && $0.tenantID.trimmingCharacters(in: .whitespaces).lowercased() == tenantID
+        let current = profiles.first { $0.id == profile.id } ?? profile
+        guard let tenant = current.knownTenantID ?? profile.knownTenantID else { return false }
+        return !profiles.contains { other in
+            guard other.id != profile.id, !other.typedTenant.isEmpty else { return false }
+            guard let otherTenant = other.knownTenantID else {
+                // a domain never signed in: possibly this tenant
+                return true
+            }
+            return EntraTenant.isSame(typed: profile.typedTenant, signedIn: tenant, as: other.typedTenant, signedIn: otherTenant)
         }
+    }
+
+    /// Remembers the tenant ID Microsoft's sign-in named for a profile's
+    /// tenant field (see `TenantProfile.signedInTenant`); saved only when
+    /// it's new. Not for the demo tenant, and never in demo mode's memory.
+    func noteSignedInTenant(_ tenantID: String, for profileID: UUID, typed: String) {
+        let id = tenantID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !id.isEmpty, profileID != demoProfile.id,
+              var profile = profiles.first(where: { $0.id == profileID }), !profile.isDemo,
+              profile.typedTenant == typed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else { return }
+        let learned = TenantProfile.SignedInTenant(typed: profile.typedTenant, id: id)
+        guard profile.signedInTenant != learned else { return }
+        profile.signedInTenant = learned
+        update(profile)
     }
 
     /// "Import Tenant Profile…" in the + menu. `adopt` gets the profile and
@@ -261,6 +287,7 @@ extension TenantProfile {
             throw TenantStoreError.demoProfile(profile.displayName)
         }
         profile.accountIdentifier = nil
+        profile.signedInTenant = nil
         if existingIDs.contains(profile.id) {
             profile.id = UUID()
             profile.displayName += " (imported)"
@@ -282,10 +309,12 @@ extension TenantProfile {
 
     /// The profile as an export file, with the identities of the sources
     /// (`sourceIdentities`), so its items keep their IDs on another Mac. The
-    /// MSAL account identifier is machine/account-specific and is left out.
+    /// MSAL account identifier is machine/account-specific and is left out,
+    /// as is the tenant ID a sign-in named.
     func exportText(sourceIdentities: [SourceIdentity] = []) throws -> String {
         var exported = self
         exported.accountIdentifier = nil
+        exported.signedInTenant = nil
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         var object = try JSONSerialization.jsonObject(with: encoder.encode(exported)) as? [String: Any] ?? [:]

@@ -9,9 +9,11 @@ extension TenantSession {
     // MARK: - Plan
 
     /// Builds a dry-run plan: fetch tenant state, then run the pure engine.
-    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`.
+    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`;
+    /// asked after the tenant check, when a profile with a domain knows its
+    /// tenant ID.
     func plan(profile: TenantProfile, items: [InferredItem], sourceStore: SourceStore,
-              isOnlyProfileForTenant: Bool = false) async {
+              isOnlyProfileForTenant: @autoclosure () -> Bool = false) async {
         guard !isApplying else {
             planError = "Apply is still running. Wait for it to finish."
             return
@@ -66,6 +68,7 @@ extension TenantSession {
         }
         do {
             let client = try await checkedClient(for: profile, scopes: GraphScopes.planRead)
+            let isOnlyProfile = isOnlyProfileForTenant()
             let existing = try await fetchExistingObjects(client: client)
             let groups = try await lookUpGroups(
                 names: referencedGroupNames(profile: profile, items: selected.map(\.item)),
@@ -85,7 +88,7 @@ extension TenantSession {
                 knownSettingDefinitionIDs: knownDefinitions,
                 existingAssignments: assignments,
                 committedFiles: committedFiles,
-                isOnlyProfileForTenant: isOnlyProfileForTenant
+                isOnlyProfileForTenant: isOnlyProfile
             )
             var plan = await Task.detached(priority: .userInitiated) {
                 PlanEngine.makePlan(input: input)
@@ -825,9 +828,11 @@ extension TenantSession {
     }
 
     /// Counts what Remove Baseline would delete. Reads only.
-    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`.
-    func removalCount(profile: TenantProfile, isOnlyProfileForTenant: Bool = false) async throws -> RemovalCount {
+    /// `isOnlyProfileForTenant`: see `PlanInput.isOnlyProfileForTenant`;
+    /// asked after the tenant check.
+    func removalCount(profile: TenantProfile, isOnlyProfileForTenant: @autoclosure () -> Bool = false) async throws -> RemovalCount {
         let client = try await checkedClient(for: profile, scopes: GraphScopes.planRead)
+        let isOnlyProfileForTenant = isOnlyProfileForTenant()
         var counted = RemovalCount()
         for collection in TenantCollection.allCases {
             for body in try await client.listRaw(collection.listPath, version: collection.version) {
@@ -844,8 +849,8 @@ extension TenantSession {
     }
 
     /// How many objects Remove Baseline would delete.
-    func taggedObjectCount(profile: TenantProfile, isOnlyProfileForTenant: Bool = false) async throws -> Int {
-        try await removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant).count
+    func taggedObjectCount(profile: TenantProfile, isOnlyProfileForTenant: @autoclosure () -> Bool = false) async throws -> Int {
+        try await removalCount(profile: profile, isOnlyProfileForTenant: isOnlyProfileForTenant()).count
     }
 
     /// Deletes this profile's tagged objects, the template filters it
@@ -857,7 +862,8 @@ extension TenantSession {
     /// tenant name first. Refused while a Plan or Apply runs; every write is
     /// tenant-checked.
     @discardableResult
-    func removeBaseline(profile: TenantProfile, counted: RemovalCount? = nil, isOnlyProfileForTenant: Bool = false) async -> Bool {
+    func removeBaseline(profile: TenantProfile, counted: RemovalCount? = nil,
+                        isOnlyProfileForTenant: @autoclosure () -> Bool = false) async -> Bool {
         guard !isApplying, !isPlanning else { return false }
         isApplying = true
         applyResults = []
@@ -890,6 +896,7 @@ extension TenantSession {
             fail("Tenant check", error)
             return true
         }
+        let isOnlyProfileForTenant = isOnlyProfileForTenant()
         for collection in TenantCollection.allCases.sorted(by: { $0.applyOrder > $1.applyOrder }) {
             if stopped { break }
             do {

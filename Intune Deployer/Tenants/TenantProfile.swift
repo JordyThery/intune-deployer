@@ -30,6 +30,18 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
     var allowGroupCreation: Bool
     /// MSAL account identifier last used to sign in to this tenant.
     var accountIdentifier: String?
+    /// The tenant ID Microsoft's sign-in named for the tenant as typed: a
+    /// profile with a domain learns it at sign-in or at its first checked
+    /// request. Only valid while `tenantID` is still what it was learned for.
+    var signedInTenant: SignedInTenant?
+
+    /// The tenant ID a sign-in named, for the tenant field as it was then.
+    nonisolated struct SignedInTenant: Codable, Sendable, Hashable {
+        /// The tenant field (trimmed, lowercased) it was learned for.
+        var typed: String
+        /// The token's tenant ID (`tid`), lowercased.
+        var id: String
+    }
 
     init(
         id: UUID = UUID(),
@@ -42,7 +54,8 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         assignments: [String: AssignmentIntent] = [:],
         defaultAssignments: [ItemType: AssignmentIntent] = [:],
         allowGroupCreation: Bool = false,
-        accountIdentifier: String? = nil
+        accountIdentifier: String? = nil,
+        signedInTenant: SignedInTenant? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -55,12 +68,13 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         self.defaultAssignments = defaultAssignments
         self.allowGroupCreation = allowGroupCreation
         self.accountIdentifier = accountIdentifier
+        self.signedInTenant = signedInTenant
     }
 
     /// The keys in tenants.json and exported profiles. Never rename them.
     private enum CodingKeys: String, CodingKey {
         case id, displayName, clientID, tenantID, namingPrefix, variables, selectedItemIDs,
-             assignments, defaultAssignments, allowGroupCreation, accountIdentifier
+             assignments, defaultAssignments, allowGroupCreation, accountIdentifier, signedInTenant
     }
 
     /// Tolerant decoding so profiles saved by earlier builds (without
@@ -78,6 +92,7 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         defaultAssignments = try container.decodeIfPresent([ItemType: AssignmentIntent].self, forKey: .defaultAssignments) ?? [:]
         allowGroupCreation = try container.decodeIfPresent(Bool.self, forKey: .allowGroupCreation) ?? false
         accountIdentifier = try container.decodeIfPresent(String.self, forKey: .accountIdentifier)
+        signedInTenant = try? container.decodeIfPresent(SignedInTenant.self, forKey: .signedInTenant)
     }
 
     /// The same keys and shape as before. The chosen items are written in
@@ -95,6 +110,30 @@ nonisolated struct TenantProfile: Identifiable, Codable, Sendable, Hashable {
         try container.encode(defaultAssignments, forKey: .defaultAssignments)
         try container.encode(allowGroupCreation, forKey: .allowGroupCreation)
         try container.encodeIfPresent(accountIdentifier, forKey: .accountIdentifier)
+        try container.encodeIfPresent(signedInTenant, forKey: .signedInTenant)
+    }
+
+    /// The tenant field as compared: trimmed and lowercased.
+    var typedTenant: String {
+        tenantID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// The tenant's ID as Microsoft knows it: the tenant ID typed (a UUID),
+    /// or the one a sign-in named for the domain typed; nil until a profile
+    /// with a domain has signed in. Compare tenants with this
+    /// (`EntraTenant.isSame`), not as typed.
+    var knownTenantID: String? {
+        if UUID(uuidString: typedTenant) != nil { return typedTenant }
+        guard let signedInTenant, signedInTenant.typed == typedTenant, !signedInTenant.id.isEmpty else { return nil }
+        return signedInTenant.id
+    }
+
+    /// What's wrong with the tenant field, for the Connections editor; nil
+    /// when it's a tenant ID (a UUID) or a domain, or still empty.
+    var tenantIDIssue: String? {
+        let tenant = tenantID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tenant.isEmpty, !Graph.TokenProvider.isTenant(tenant) else { return nil }
+        return "The tenant ID isn’t a tenant ID or a domain. Copy the Directory (tenant) ID from Entra (a UUID), or enter a verified domain such as contoso.onmicrosoft.com."
     }
 
     /// A name for a file's default name: "/" and ":" can't be in a file

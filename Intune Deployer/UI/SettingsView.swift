@@ -75,8 +75,24 @@ struct TenantConnectionsTab: View {
                 Task { await auth.signOut(profile: profile) }
             }
         ) { $profile in
+            TenantIDIssueSection(profile: profile)
             AppRegistrationSection()
             TenantExportSection(saved: tenants.connections.record(id: profile.id), sources: sources)
+        }
+    }
+}
+
+/// Says below the shared fields when the tenant ID is neither a tenant ID
+/// (a UUID) nor a domain: such a profile can't sign in.
+private struct TenantIDIssueSection: View {
+    let profile: TenantProfile
+
+    var body: some View {
+        if let issue = profile.tenantIDIssue {
+            Section {
+                WarningLabel(issue)
+                    .font(.callout)
+            }
         }
     }
 }

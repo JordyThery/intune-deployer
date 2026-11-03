@@ -55,6 +55,10 @@ final class TenantSession {
     /// first write), keyed by profile ID and tenant field.
     @ObservationIgnored private var confirmedTenantIDs: [String: String] = [:]
 
+    /// Told the tenant ID confirmed for a profile with a verified domain,
+    /// so the profile remembers it (`TenantStore.noteSignedInTenant`).
+    @ObservationIgnored var onTenantConfirmed: (@MainActor (TenantProfile, String) -> Void)?
+
     /// - Parameters:
     ///   - realTenantSession: the live checks' guarded network (JTKit
     ///     `LiveCheckNetwork`); by default the real network, under tests a
@@ -151,7 +155,7 @@ final class TenantSession {
         } else {
             try await auth.accessToken(profile: profile, scopes: scopes)
         }
-        guard let tokenTenant = TenantCheck.tenantID(ofAccessToken: token) else { throw TenantCheck.Failure.unreadable }
+        guard let tokenTenant = EntraToken.tenantID(ofAccessToken: token) else { throw TenantCheck.Failure.unreadable }
         confirmedTenantIDs["\(profile.id)|\(tenant)"] = tokenTenant
         let checking = client(for: profile, scopes: scopes)
         nonisolated struct Organization: Decodable, Sendable {
@@ -169,6 +173,7 @@ final class TenantSession {
             confirmedTenantIDs["\(profile.id)|\(tenant)"] = nil
             throw error
         }
+        onTenantConfirmed?(profile, tokenTenant)
         return checking
     }
 
