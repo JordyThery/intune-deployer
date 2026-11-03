@@ -16,7 +16,7 @@ import Testing
 // - A small `JTKTEST` baseline (a filter, a shell script, a custom attribute,
 //   a Settings Catalog policy, a compliance policy; no app), applied with the
 //   app's own Plan and Apply, read back, a second Plan with nothing to do,
-//   one update, then removed with the app's own deletion path (orphans
+//   one update (the script and the Settings Catalog setting), then removed with the app's own deletion path (orphans
 //   ticked in a Plan), only objects this run created.
 // - An app package (`appPackage()`, 2026-11-02): a tiny unsigned JTKTEST
 //   .pkg planned, applied with its upload (Azure Storage only at the address
@@ -583,6 +583,16 @@ struct LiveLifecycleTests {
         }
         try require("Plan assigns only to the test group (never All devices, All users or another group)", onlyTheGroup,
                     note: "\(assigned.count) assigned objects")
+        // The Settings Catalog check reads the tenant's setting IDs with a
+        // platform $filter and $top (undocumented, WATCHLIST): recorded, as
+        // Plan falls back to the unfiltered read when Graph refuses it.
+        let filteredReads = tenant.log.entries.filter {
+            $0.request?.url.contains("configurationSettings?") == true && $0.request?.url.contains("filter=") == true
+        }
+        run.record(step: step("Settings Catalog setting IDs read with $filter and $top"),
+                   passed: true,
+                   note: filteredReads.contains { $0.status == 200 } ? "answered (HTTP 200)"
+                       : filteredReads.isEmpty ? "not sent" : "refused (HTTP \(filteredReads.compactMap(\.status).map(String.init).joined(separator: ", "))): Plan used the unfiltered read")
         let othersTagged = plan.orphans.count
         // Only this run's profile's objects can be orphans (bug 2): the
         // tenant's other Intune Deployer objects aren't listed at all.
@@ -636,25 +646,36 @@ struct LiveLifecycleTests {
         try require("second Apply sends nothing", applyFailures().isEmpty && resent.isEmpty && fence.refusals.isEmpty,
                     note: (resent + fence.refusals).joined(separator: "; "))
 
-        // 7. One update: the script changes; Plan shows exactly that.
+        // 7. Two updates: the script, and the Settings Catalog policy's
+        // setting (a PUT with its settings inline, WATCHLIST); Plan shows
+        // exactly those.
         try Data("#!/bin/zsh\necho \"JTKTEST live check, updated\"\n".utf8).write(to: root.appending(path: "Scripts/hello.sh"))
+        try Data(Fixtures.settingsCatalogJSON.replacingOccurrences(of: "allowcontentcaching_false", with: "allowcontentcaching_true").utf8)
+            .write(to: root.appending(path: "Settings Catalog/content-caching.json"))
         plan = try await planAgain(session, profile, items, store, require)
         let updates = plan.actions.filter { if case .update = $0.kind { true } else { false } }
-        try require("Plan after editing the script: one update, four unchanged",
-                    !plan.hasErrors && updates.count == 1 && updates.first?.collection == .shellScripts && plan.unchangedCount == 4
-                        && plan.createCount == 0, note: describe(plan))
-        // Only the script's update: its assignments are already as intended.
+        try require("Plan after editing the script and the setting: two updates, three unchanged",
+                    !plan.hasErrors && Set(updates.map(\.collection)) == [.shellScripts, .settingsCatalog] && updates.count == 2
+                        && plan.unchangedCount == 3 && plan.createCount == 0, note: describe(plan))
+        // Only the updates: their assignments are already as intended.
         fence.set(.init(name: "Apply: the update only") { method, path in
             let parts = Fence.segments(path)
             let onObject = parts.count >= 2 && Fence.isID(parts.last ?? "")
             return Fence.isRead(method) || ((method == "PATCH" || method == "PUT") && onObject)
         })
+        let writesBeforeUpdate = fence.writes.count
         await session.apply(profile: profile, plan: plan, deleteOrphanIDs: [], items: items, sourceStore: store)
-        try require("Apply the update", applyFailures().isEmpty && fence.refusals.isEmpty, note: applyFailures().joined(separator: "; "))
+        let updateWrites = Array(fence.writes.dropFirst(writesBeforeUpdate))
+        try require("Apply the updates: the Settings Catalog policy with PUT, its settings inline",
+                    applyFailures().isEmpty && fence.refusals.isEmpty
+                        && updateWrites.contains { $0.hasPrefix("PUT ") && $0.contains("configurationPolicies/") }
+                        && !updateWrites.contains { $0.hasSuffix("/assign") },
+                    note: (applyFailures() + fence.refusals + updateWrites).joined(separator: "; "))
         fence.set(.init(name: "Plan: reads only") { method, _ in Fence.isRead(method) })
         plan = try await planAgain(session, profile, items, store, require)
-        try require("Plan after the update: nothing to do", isNothingToDo(plan), note: describe(plan))
-        try await readBack(plan, tenant: tenant, groupID: groupID, scriptText: "JTKTEST live check, updated", require: require, attempt: attempt)
+        try require("Plan after the updates: nothing to do", isNothingToDo(plan), note: describe(plan))
+        try await readBack(plan, tenant: tenant, groupID: groupID, scriptText: "JTKTEST live check, updated",
+                           settingValue: "com.apple.applicationaccess_allowcontentcaching_true", require: require, attempt: attempt)
 
         // 8. Removal with the app's own deletion path: a Plan without the
         // items lists them as orphans; only this run's are ticked.
@@ -894,6 +915,7 @@ struct LiveLifecycleTests {
     /// Reads the objects back with the test code: name, identity tag, the
     /// content that matters, assignments only to the test group.
     private func readBack(_ plan: Plan, tenant: LiveTenant, groupID: String, scriptText: String,
+                          settingValue: String = "com.apple.applicationaccess_allowcontentcaching_false",
                           require: (String, Bool, String?) throws -> Void,
                           attempt: (String, () async throws -> Data) async throws -> Data) async throws {
         var problems: [String] = []
@@ -932,7 +954,7 @@ struct LiveLifecycleTests {
                 let settings = try await attempt("read back the Settings Catalog settings") {
                     try await tenant.api.getRaw("\(path)/settings", version: .beta)
                 }
-                if !String(decoding: settings, as: UTF8.self).contains("com.apple.applicationaccess_allowcontentcaching_false") {
+                if !String(decoding: settings, as: UTF8.self).contains(settingValue) {
                     problems.append("Settings Catalog: the setting isn't the file's")
                 }
             default:

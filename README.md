@@ -82,9 +82,13 @@ that tenant:
    (Overview page).
 
 In the app, add a tenant profile in **Settings › Connections** (the **+**
-button) or from the **Connection** menu with those two values, choose it in
-the toolbar (or the **Connection** menu), then sign in from the toolbar with
-an account that has sufficient Intune permissions in that tenant. Microsoft Graph permissions are requested
+button) or from the **Connection** menu with those two values. Instead of the
+tenant ID you can enter one of the tenant’s verified domains
+(e.g. `contoso.onmicrosoft.com`); the editor says when the value is neither.
+When no tenant is in use yet, a new or imported profile becomes the one in
+use; otherwise choose it in the toolbar (or the **Connection** menu). Then
+sign in from the toolbar with an account that has sufficient Intune
+permissions in that tenant. Microsoft Graph permissions are requested
 incrementally and need admin consent on first use.
 
 ### 2. Graph permissions
@@ -242,6 +246,8 @@ before assignment. Bundle ID/version come from the package itself —
 and .ipa. The publisher field defaults to the app name; adjust it in the
 Intune admin center if needed. Re-uploads happen only when the bundle version, build number or file
 name changes (for an `.ipa`, also the provisioning expiry).
+Reading a package at plan time may take five minutes plus a minute per GB;
+a package that takes longer is a plan error that says so.
 
 `.ipa` support is a **preview**: the upload follows Microsoft’s LOB sample,
 but it has not yet been verified against a production deployment. The .ipa
@@ -300,7 +306,11 @@ and release tag are shown with every item.
 - Orphaned objects (tagged but no longer selected) are only deleted when
   explicitly ticked, and only the tenant profile’s own objects are listed.
   Objects deployed before profile tags count as the profile’s when their name
-  carries its naming prefix. With two or more deletions ticked, Apply asks you
+  carries its naming prefix, or, without a prefix, when it is the only tenant
+  profile for its tenant. Tenants are compared by the tenant ID Microsoft’s
+  sign-in names, so a profile with the tenant’s domain and one with its
+  tenant ID count as the same tenant; a profile with a domain that hasn’t
+  signed in yet counts as possibly the same. With two or more deletions ticked, Apply asks you
   to type the number of deletions first.
 - **Remove Baseline** deletes the tenant profile’s own tagged objects, the
   built-in template filters it created, and the groups it created that still
@@ -316,8 +326,12 @@ and release tag are shown with every item.
 - A read-only preflight checklist verifies tenant readiness (MDM authority,
   Apple MDM push certificate and ADE token expiry), and the tenant view lists
   every object the app manages.
+- When Microsoft asks the app to wait before trying a request again, the
+  wait is shown at the bottom of the window with **Stop**. Stop ends the wait;
+  that request isn’t sent again, and Apply or Remove Baseline sends nothing
+  after it.
 - An as-built report (Markdown or HTML) can be exported after every Apply;
-  variable values are masked in it. Tenant profiles can be exported and
+  variable values are masked (••••) where a variable is used. Tenant profiles can be exported and
   imported as JSON (Settings › Connections). An export carries the identities
   of its sources, so on another Mac add the same sources and the items keep
   their identities.
