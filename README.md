@@ -1,4 +1,14 @@
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="Intune Deployer app icon">
+</p>
+
 # Intune Deployer
+
+*Populate an Intune tenant without the clicking.*
+
+[![Latest release](https://img.shields.io/github/v/release/JordyThery/intune-deployer?label=release)](https://github.com/JordyThery/intune-deployer/releases/latest)
+![macOS 15+](https://img.shields.io/badge/macOS-15%2B-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 An open source macOS app that deploys macOS and iOS/iPadOS configuration to
 Microsoft Intune.
