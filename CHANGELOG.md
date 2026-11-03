@@ -3,21 +3,26 @@
 ## 1.7.0 (2026-11-03)
 
 ### New
-- When Microsoft asks the app to wait before trying again, the wait is shown with a Stop button. Stop ends the wait; Apply and Remove Baseline then send nothing after it.
+- When Microsoft asks the app to wait before trying again, the wait is shown with a Stop button. Stop ends the wait; Apply and Remove Baseline then send nothing after it. A stopped update, assignment or deletion says it may already have been carried out, in the results and the as-built report.
 - A new or imported tenant profile becomes the one in use when no tenant is in use yet.
 - Settings › Connections says when a tenant ID is neither a tenant ID nor a domain.
 - A new app icon in the macOS icon shape.
-- Plan, Refresh Sources, Sign In and Sign Out are in a new Tenant menu, and Add Folder… and Add GitHub Repository… in the File menu. The View menu can show or hide the sidebar and the toolbar. Plan’s tooltip says why it’s dimmed.
+- Plan, Refresh Sources, Sign In, Sign Out, Baseline Settings, Run Preflight, Reload Inventory, Export All and Remove Baseline are in a new Tenant menu, and Add Folder… and Add GitHub Repository… in the File menu. They’re unavailable while a Plan, Remove Baseline, Preflight or Baseline Settings sheet is open, so nothing replaces the plan on screen. The View menu can show or hide the sidebar and the toolbar. Plan’s tooltip says why it’s dimmed.
+- With two or more deletions ticked, the number to type appears at the bottom of the Plan instead of in a second window.
+- Saved data that can’t be read is shown in a notice at the bottom of the window instead of an alert at launch.
+- When objects deployed before version 1.6 aren’t counted as a profile’s because a tenant ID isn’t known yet, the Plan and Remove Baseline say so.
 
 ### Changed
 - Tenants are compared by the tenant ID Microsoft’s sign-in names, so a profile with the tenant’s domain and one with its tenant ID count as the same tenant. This also applies to recognizing objects deployed before version 1.6 by a profile without a naming prefix.
-- The as-built report masks a variable’s value only where the variable is used, so the same text elsewhere in a payload stays readable. Scripts and profiles with variables are now shown masked instead of left out.
+- The as-built report masks a variable’s value only where the variable is used, so the same text elsewhere in a payload stays readable. Scripts and profiles with variables are now shown masked instead of left out, and so are item names that use a variable. Longer values are also masked in the Apply steps’ messages.
 - Plan changes, warnings and Apply results are easier to read: larger text, with colors on symbols instead of on the text. VoiceOver reads rows, progress and controls more clearly.
-- Reading a large app package at plan time gets more time (five minutes plus a minute per GB), and a package that takes longer says so.
+- Reading a large app package at plan time gets more time (five minutes plus a minute per GB), and a package that takes longer says so. A package tool that doesn’t stop is ended, so Plan never hangs on it.
+- The tenant’s Settings Catalog setting list is read once per session instead of before every Plan.
 
 ### Fixed
 - Plan no longer sends failing assignment requests for assignment filters.
-- A Keychain that can’t be read is reported as such, instead of as a missing GitHub token.
+- A Keychain that can’t be read is reported as such, instead of as a missing GitHub token. A public GitHub repository still syncs; the Keychain problem is shown only when GitHub refuses the request.
+- Remove Baseline can’t be started while a Plan runs, and says so.
 - The tenant check uses the tenant Microsoft reports with each sign-in token.
 
 ## 1.6.1 (2026-11-01)

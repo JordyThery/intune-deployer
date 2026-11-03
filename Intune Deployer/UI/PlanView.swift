@@ -153,12 +153,13 @@ struct PlanView: View {
                             }
                         }
                     }
+                    // a row, not the section footer: a footer stays on one line
+                    Text("Deployed by this profile for items no longer included; deleted only when ticked. Other profiles’ objects and untagged objects are never touched.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 } header: {
                     Text("Orphaned (\(plan.orphans.count))")
-                } footer: {
-                    Text("Objects this tenant profile deployed for items that are no longer included. They’re deleted only when ticked. Other profiles’ objects and untagged objects are never touched.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }

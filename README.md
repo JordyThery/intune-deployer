@@ -307,7 +307,8 @@ and release tag are shown with every item.
   explicitly ticked, and only the tenant profile’s own objects are listed.
   Objects deployed before profile tags count as the profile’s when their name
   carries its naming prefix, or, without a prefix, when it is the only tenant
-  profile for its tenant. Tenants are compared by the tenant ID Microsoft’s
+  profile for its tenant (Plan and Remove Baseline say when that can’t be
+  decided yet because a tenant ID isn’t known). Tenants are compared by the tenant ID Microsoft’s
   sign-in names, so a profile with the tenant’s domain and one with its
   tenant ID count as the same tenant; a profile with a domain that hasn’t
   signed in yet counts as possibly the same. With two or more deletions ticked, Apply asks you
@@ -329,14 +330,20 @@ and release tag are shown with every item.
 - When Microsoft asks the app to wait before trying a request again, the
   wait is shown at the bottom of the window with **Stop**. Stop ends the wait;
   that request isn’t sent again, and Apply or Remove Baseline sends nothing
-  after it.
+  after it. A stopped update, assignment or deletion may already have been
+  carried out: the results say so; run Plan again to see.
+- Plan, sign-in, Baseline Settings, Preflight, the inventory, export and
+  Remove Baseline are also in the **Tenant** menu. While a Plan, Remove
+  Baseline, Preflight or Baseline Settings sheet is open, they and the tenant
+  picker are unavailable, so the plan on screen stays as it is.
 - An as-built report (Markdown or HTML) can be exported after every Apply;
-  variable values are masked (••••) where a variable is used. Tenant profiles can be exported and
+  variable values are masked (••••) where a variable is used, also in item
+  names, and longer values also in the Apply steps’ messages. Tenant profiles can be exported and
   imported as JSON (Settings › Connections). An export carries the identities
   of its sources, so on another Mac add the same sources and the items keep
   their identities.
 - Saved files the app can’t read (sources, item edits, platform choices) are
-  copied aside and never saved over; an alert says so.
+  copied aside and never saved over; a notice at the bottom of the window says so.
 - The activity log (⇧⌘L) records every Graph, GitHub and upload request
   (method, address, status and redacted headers). It never records tokens or
   request bodies; error responses are recorded with secrets redacted.
