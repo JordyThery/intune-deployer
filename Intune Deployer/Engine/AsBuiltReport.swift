@@ -10,20 +10,15 @@ nonisolated enum AsBuiltReport {
         let plan: Plan
         let results: [ApplyResult]
         let date: Date
-        /// The profile's variable values: masked in the payloads, since a
-        /// baseline keeps its secrets (a Wi-Fi password, an API key) there.
-        var variables: [String: String] = [:]
-
-        /// The values that are masked: four characters or more, so short
-        /// values like "1" don't hide the rest of the payload.
-        var secrets: [String] {
-            variables.values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { $0.count >= 4 }.sorted { $0.count > $1.count }
-        }
     }
 
+    /// What stands where a variable's value is: a baseline keeps its secrets
+    /// (a Wi-Fi password, an API key) in variables. Only those places are
+    /// masked, inside base64 content too; the same text elsewhere isn't.
+    static let mask = "••••"
+
     /// Said above the items, in both reports.
-    static let maskingNote = "Variable values are masked (••••). Base64 content that contains one is left out."
+    static let maskingNote = "Variable values are masked (••••) where a variable is used."
 
     // MARK: - Markdown
 
@@ -74,7 +69,7 @@ nonisolated enum AsBuiltReport {
             lines.append("<details><summary>Settings payload</summary>")
             lines.append("")
             lines.append("```json")
-            lines.append(prettyPayload(action.payload, masking: input.secrets))
+            lines.append(payloadText(action))
             lines.append("```")
             lines.append("")
             lines.append("</details>")
@@ -137,7 +132,7 @@ nonisolated enum AsBuiltReport {
             for warning in action.warnings {
                 body += "<p class=\"warning\">Warning: \(escape(warning))</p>"
             }
-            body += "<details><summary>Settings payload</summary><pre>\(escape(prettyPayload(action.payload, masking: input.secrets)))</pre></details>"
+            body += "<details><summary>Settings payload</summary><pre>\(escape(payloadText(action)))</pre></details>"
             body += "</section>"
         }
 
@@ -221,32 +216,22 @@ nonisolated enum AsBuiltReport {
         }
     }
 
-    static func prettyPayload(_ payload: Data, masking secrets: [String] = []) -> String {
+    /// The payload as the report shows it (see `PlanItemAction.reportPayload`).
+    static func payloadText(_ action: PlanItemAction) -> String {
+        switch action.reportPayload {
+        case .same: prettyPayload(action.payload)
+        case .masked(let masked): prettyPayload(masked)
+        case .leftOut: "(Left out: it holds variable values that can’t be masked here.)"
+        }
+    }
+
+    static func prettyPayload(_ payload: Data) -> String {
         guard let object = try? JSONSerialization.jsonObject(with: payload),
-              let pretty = try? JSONSerialization.data(withJSONObject: masked(object, secrets: secrets),
-                                                       options: [.prettyPrinted, .sortedKeys]),
+              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: pretty, encoding: .utf8) else {
-            return mask(String(data: payload, encoding: .utf8) ?? "(binary)", secrets: secrets)
+            return String(data: payload, encoding: .utf8) ?? "(binary)"
         }
         return text
-    }
-
-    /// Every string with the secrets masked; base64 content (scripts,
-    /// profiles) that holds one is left out, since it can't be masked in place.
-    private static func masked(_ value: Any, secrets: [String]) -> Any {
-        guard !secrets.isEmpty else { return value }
-        if let dict = value as? [String: Any] { return dict.mapValues { masked($0, secrets: secrets) } }
-        if let array = value as? [Any] { return array.map { masked($0, secrets: secrets) } }
-        guard let text = value as? String else { return value }
-        if text.count >= 16, let decoded = Data(base64Encoded: text).flatMap({ String(data: $0, encoding: .utf8) }),
-           secrets.contains(where: decoded.contains) {
-            return "(base64 content with variable values, left out)"
-        }
-        return mask(text, secrets: secrets)
-    }
-
-    private static func mask(_ text: String, secrets: [String]) -> String {
-        secrets.reduce(text) { $0.replacingOccurrences(of: $1, with: "••••") }
     }
 
     static func escape(_ text: String) -> String {

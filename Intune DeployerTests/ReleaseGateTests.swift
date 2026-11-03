@@ -515,25 +515,45 @@ struct SmallerGateTests {
         #expect(TenantExporter.cleanedDescription("Managed by Intune Deployer [IntuneDeployer:0123abcd] [IntuneDeployerProfile:7c01a9e2]") == nil)
     }
 
-    @Test("The as-built report masks variable values, also inside base64 content")
-    func reportMasksVariables() {
+    @Test("The as-built report masks a variable's value only where the variable is, also inside base64 content")
+    func reportMasksVariables() throws {
         let secret = "correct-horse-battery"
-        let payload = json([
-            "displayName": "Wi-Fi",
-            "note": "PSK is \(secret)",
-            "payload": Data("<key>Password</key><string>\(secret)</string>".utf8).base64EncodedString(),
-        ])
-        var plan = Plan()
-        plan.actions = [PlanItemAction(id: "0a0b0c0d", collection: .deviceConfigurations, displayName: "Wi-Fi", kind: .create,
-                                       payload: Data(payload.utf8), existingObjectID: nil, assignments: nil, warnings: ["Careful"])]
+        func item(_ path: String, _ type: ItemType) -> InferredItem {
+            InferredItem(id: ItemIdentity.shortID(sourceID: UUID(), relativePath: path), sourceID: UUID(), relativePath: path,
+                         fileURL: URL(filePath: "/tmp/fixture/\(path)"), type: type, displayName: "Item", detectionReason: "test")
+        }
+        let script = item("scripts/wifi.sh", .shellScript)
+        let compliance = item("compliance/encryption.json", .compliancePolicy)
+        let numeric = item("compliance/numeric.json", .compliancePolicy)
+        var profile = TenantProfile(displayName: "Lab", clientID: "c", tenantID: tenantA)
+        // "macOS" is a value elsewhere too: only where {{Platform}} is may it be masked
+        profile.variables = ["WiFiPSK": secret, "Platform": "macOS", "Grace": "24"]
+        profile.selectedItemIDs = [script.id, compliance.id, numeric.id]
+        let numericJSON = ##"{"@odata.type": "#microsoft.graph.macOSCompliancePolicy", "displayName": "Numeric", "passwordMinimumLength": {{Grace}}}"##
+        let plan = PlanEngine.makePlan(input: PlanInput(
+            selectedItems: [
+                .init(item: script, fileData: Data("#!/bin/zsh\necho PSK is {{WiFiPSK}} on {{Platform}}\n".utf8)),
+                .init(item: compliance, fileData: Data(Fixtures.complianceJSON.utf8)),
+                .init(item: numeric, fileData: Data(numericJSON.utf8)),
+            ],
+            profile: profile, existingObjects: [:], groups: [:], knownSettingDefinitionIDs: nil))
+        #expect(plan.actions.first { $0.id == compliance.id }?.reportPayload == .same, "no variable in it")
+        #expect(plan.actions.first { $0.id == numeric.id }?.reportPayload == .leftOut)
+        guard case .masked(let maskedScript) = try #require(plan.actions.first { $0.id == script.id }).reportPayload,
+              let body = try JSONSerialization.jsonObject(with: maskedScript) as? [String: Any],
+              let content = (body["scriptContent"] as? String).flatMap({ Data(base64Encoded: $0) }) else {
+            Issue.record("the script's report payload isn't masked")
+            return
+        }
+        #expect(String(decoding: content, as: UTF8.self) == "#!/bin/zsh\necho PSK is •••• on ••••\n")
+
         let input = AsBuiltReport.Input(profileName: "Lab", tenantID: tenantA, namingPrefix: "", plan: plan,
-                                        results: [ApplyResult(title: "Create Wi-Fi", outcome: .success)], date: .now,
-                                        variables: ["WiFiPSK": secret, "Short": "1"])
+                                        results: [ApplyResult(title: "Create Item", outcome: .success)], date: .now)
         for report in [AsBuiltReport.markdown(input), AsBuiltReport.html(input)] {
             #expect(!report.contains(secret))
-            #expect(!report.contains(Data(secret.utf8).base64EncodedString().prefix(12)))
-            #expect(report.contains("PSK is ••••"))
-            #expect(report.contains("Warning: Careful"))
+            #expect(!report.contains(Data("PSK is \(secret)".utf8).base64EncodedString().prefix(12)))
+            #expect(report.contains("#microsoft.graph.macOSCompliancePolicy"), "the same text elsewhere isn't masked")
+            #expect(report.contains("Left out"))
             #expect(report.contains("Succeeded"))
             #expect(!report.contains("✅") && !report.contains("⚠️"))
         }
@@ -543,7 +563,25 @@ struct SmallerGateTests {
     func helperToolTimeout() throws {
         // Without input, cat ends at once instead of waiting for a typed answer.
         #expect(try AppPackageInspector.run("/bin/cat", []) == "")
-        #expect(throws: AppInspectionError.self) { try AppPackageInspector.run("/bin/sleep", ["5"], timeout: 0.3) }
+        #expect(throws: AppInspectionError.timedOut(seconds: 0)) { try AppPackageInspector.run("/bin/sleep", ["5"], timeout: 0.3) }
+        // a failing tool is a failure, not a time-out
+        #expect(throws: AppInspectionError.toolFailed("")) { try AppPackageInspector.run("/usr/bin/false", []) }
+    }
+
+    @Test("A committed file's size is read from size, the field Graph returns, before sizeInBytes")
+    func committedFileSize() {
+        #expect(CommittedFile(graph: Data(#"{"name":"a.pkg","size":10,"sizeInBytes":99}"#.utf8))?.size == 10)
+        #expect(CommittedFile(graph: Data(#"{"name":"a.pkg","sizeInBytes":99}"#.utf8))?.size == 99)
+        #expect(CommittedFile(graph: Data(#"{"name":"a.pkg"}"#.utf8))?.size == nil)
+    }
+
+    @Test("Package inspection gets more time for a larger package, and says when it ran out")
+    func inspectionTimeFitsTheSize() {
+        #expect(AppPackageInspector.timeout(forSize: 0) == 300)
+        #expect(AppPackageInspector.timeout(forSize: 40_000_000) == 360)
+        #expect(AppPackageInspector.timeout(forSize: 12_500_000_000) == 300 + 13 * 60)
+        #expect(AppInspectionError.timedOut(seconds: 1080).localizedDescription
+            == "Reading the package took longer than 18 minutes, so it was stopped. Check that it opens in Finder, then run Plan again.")
     }
 
     @Test("The results line counts skipped steps apart")

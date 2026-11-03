@@ -257,8 +257,7 @@ struct PlanView: View {
             namingPrefix: profile.namingPrefix,
             plan: plan,
             results: results,
-            date: .now,
-            variables: profile.variables
+            date: .now
         )
         let stamp = Date.now.formatted(.iso8601.year().month().day())
         reportType = markdown ? .plainText : .html

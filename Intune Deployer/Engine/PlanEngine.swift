@@ -99,6 +99,26 @@ nonisolated struct CommittedFile: Sendable, Hashable {
     }
 }
 
+nonisolated extension PlanEngine {
+    /// What the as-built report shows for an item: its payload built again
+    /// with "••••" for every variable, so only the places a variable filled
+    /// are masked; the same payload when no variable is in it.
+    static func reportPayload(of selected: PlanInput.SelectedItem, built: PayloadBuilder.Built,
+                              input: PlanInput) -> PlanItemAction.ReportPayload {
+        let variables = input.profile.variables.filter { !$0.value.isEmpty }
+        guard !variables.isEmpty, selected.item.type != .app else { return .same }
+        guard let masked = try? PayloadBuilder.build(
+            item: selected.item,
+            fileData: selected.fileData,
+            namingPrefix: input.profile.namingPrefix,
+            variables: variables.mapValues { _ in AsBuiltReport.mask },
+            appInfo: selected.appInfo,
+            profileID: input.profile.id
+        ) else { return .leftOut }
+        return masked.body == built.body ? .same : .masked(masked.body)
+    }
+}
+
 nonisolated extension TenantCollection {
     /// Whether its objects have assignments. Assignment filters don't: Plan
     /// reads no assignments for them.
@@ -318,7 +338,8 @@ nonisolated enum PlanEngine {
                 settingChanges: settingChanges,
                 warnings: warnings,
                 assignmentsUpToDate: assignmentsUpToDate,
-                package: built.collection == .apps ? selected.package : nil
+                package: built.collection == .apps ? selected.package : nil,
+                reportPayload: Self.reportPayload(of: selected, built: built, input: input)
             ))
         }
 

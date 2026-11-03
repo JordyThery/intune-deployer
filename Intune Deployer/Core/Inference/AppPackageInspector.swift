@@ -1,4 +1,5 @@
 import Foundation
+import os
 import OSLog
 
 /// Bundle metadata read from a .pkg, .dmg or .ipa, used to build the Intune app.
@@ -25,14 +26,18 @@ nonisolated struct AppPackageInfo: Sendable, Hashable {
     var provisioningExpiration: Date?
 }
 
-nonisolated enum AppInspectionError: LocalizedError {
+nonisolated enum AppInspectionError: LocalizedError, Equatable {
     case toolFailed(String)
     case noMetadata(String)
+    /// Reading the package took longer than its time limit (`seconds`).
+    case timedOut(seconds: Int)
 
     var errorDescription: String? {
         switch self {
         case .toolFailed(let message): "Couldn’t open the package: \(message)"
         case .noMetadata(let message): message
+        case .timedOut(let seconds):
+            "Reading the package took longer than \(Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide))), so it was stopped. Check that it opens in Finder, then run Plan again."
         }
     }
 }
@@ -53,13 +58,15 @@ nonisolated enum AppPackageInspector {
     private static let logger = Logger(subsystem: "be.jordythery.intune-deployer", category: "AppInspector")
 
     static func inspect(packageAt url: URL) throws -> AppPackageInfo {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let timeout = timeout(forSize: size)
         switch url.pathExtension.lowercased() {
         case "pkg":
-            return try inspectPkg(at: url)
+            return try inspectPkg(at: url, timeout: timeout)
         case "dmg":
-            return try inspectDmg(at: url)
+            return try inspectDmg(at: url, timeout: timeout)
         case "ipa":
-            return try inspectIpa(at: url)
+            return try inspectIpa(at: url, timeout: timeout)
         default:
             throw AppInspectionError.noMetadata("Unsupported package type .\(url.pathExtension)")
         }
@@ -67,7 +74,7 @@ nonisolated enum AppPackageInspector {
 
     // MARK: - .pkg (xar)
 
-    private static func inspectPkg(at url: URL) throws -> AppPackageInfo {
+    private static func inspectPkg(at url: URL, timeout: TimeInterval) throws -> AppPackageInfo {
         let workDir = url.deletingLastPathComponent().appending(path: "xar-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
@@ -75,7 +82,7 @@ nonisolated enum AppPackageInspector {
         // List the archive, then extract only the metadata XML files
         // (xar matches literal paths, so nested PackageInfo entries must be
         // named explicitly).
-        let listing = try run("/usr/bin/xar", ["-t", "-f", url.path])
+        let listing = try run("/usr/bin/xar", ["-t", "-f", url.path], timeout: timeout)
         let metadataPaths = listing
             .split(whereSeparator: \.isNewline)
             .map(String.init)
@@ -85,7 +92,7 @@ nonisolated enum AppPackageInspector {
         guard !metadataPaths.isEmpty else {
             throw AppInspectionError.noMetadata("The .pkg contains no Distribution or PackageInfo metadata")
         }
-        try run("/usr/bin/xar", ["-x", "-f", url.path, "-C", workDir.path] + metadataPaths)
+        try run("/usr/bin/xar", ["-x", "-f", url.path, "-C", workDir.path] + metadataPaths, timeout: timeout)
 
         if let data = try? Data(contentsOf: workDir.appending(path: "Distribution")), !data.isEmpty {
             return try parseDistribution(data)
@@ -163,13 +170,14 @@ nonisolated enum AppPackageInspector {
 
     // MARK: - .dmg (hdiutil)
 
-    private static func inspectDmg(at url: URL) throws -> AppPackageInfo {
+    private static func inspectDmg(at url: URL, timeout: TimeInterval) throws -> AppPackageInfo {
         // Mount at a known path so the image is always detached, even when
         // parsing fails afterwards.
         let mountURL = url.deletingLastPathComponent().appending(path: "mount-\(UUID().uuidString)")
         _ = try run(
             "/usr/bin/hdiutil",
-            ["attach", url.path, "-nobrowse", "-readonly", "-noverify", "-mountpoint", mountURL.path]
+            ["attach", url.path, "-nobrowse", "-readonly", "-noverify", "-mountpoint", mountURL.path],
+            timeout: timeout
         )
         defer {
             _ = try? run("/usr/bin/hdiutil", ["detach", mountURL.path, "-quiet", "-force"])
@@ -196,11 +204,11 @@ nonisolated enum AppPackageInspector {
     /// An .ipa is a zip with `Payload/<Name>.app/`; the app's Info.plist
     /// carries the bundle metadata and `embedded.mobileprovision` the
     /// provisioning profile (a CMS blob with a readable plist inside).
-    private static func inspectIpa(at url: URL) throws -> AppPackageInfo {
+    private static func inspectIpa(at url: URL, timeout: TimeInterval) throws -> AppPackageInfo {
         let workDir = url.deletingLastPathComponent().appending(path: "ipa-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
-        try run("/usr/bin/ditto", ["-x", "-k", url.path, workDir.path])
+        try run("/usr/bin/ditto", ["-x", "-k", url.path, workDir.path], timeout: timeout)
         // Archives can contain symlinks with arbitrary targets; reads below
         // must never follow one outside the work directory.
         removeSymlinks(in: workDir)
@@ -254,6 +262,13 @@ nonisolated enum AppPackageInspector {
         }
     }
 
+    /// How long a helper tool may take for a package of this size: five
+    /// minutes, plus a minute per GB, so a large package on a slow disk
+    /// still opens.
+    static func timeout(forSize bytes: Int) -> TimeInterval {
+        300 + 60 * (Double(max(bytes, 0)) / 1_000_000_000).rounded(.up)
+    }
+
     /// ExpirationDate from a provisioning profile: the profile is a signed
     /// CMS blob, so the plist is located by its XML markers.
     static func provisioningExpiration(in data: Data) -> Date? {
@@ -284,15 +299,18 @@ nonisolated enum AppPackageInspector {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let timedOut = OSAllocatedUnfairLock(initialState: false)
         let deadline = DispatchWorkItem { [process] in
-            if process.isRunning { process.terminate() }
+            guard process.isRunning else { return }
+            timedOut.withLock { $0 = true }
+            process.terminate()
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         process.waitUntilExit()
         deadline.cancel()
-        if process.terminationReason == .uncaughtSignal {
-            throw AppInspectionError.toolFailed("\(URL(filePath: tool).lastPathComponent) didn’t finish within \(Int(timeout)) seconds")
+        if timedOut.withLock({ $0 }) {
+            throw AppInspectionError.timedOut(seconds: Int(timeout.rounded()))
         }
         guard process.terminationStatus == 0 else {
             logger.error("\(tool, privacy: .public) failed: \(output, privacy: .public)")

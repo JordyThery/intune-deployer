@@ -48,6 +48,20 @@ nonisolated struct PlanItemAction: Sendable, Identifiable {
     var assignmentsUpToDate = false
     /// An app's package as Plan read it; Apply refuses to upload another.
     var package: PlanInput.PackageFile?
+    /// The payload as the as-built report shows it: built again with "••••"
+    /// for every variable, so a value is masked only where a variable put it.
+    var reportPayload: ReportPayload = .same
+
+    /// The payload for the as-built report.
+    enum ReportPayload: Sendable, Equatable {
+        /// No variable in it: the payload as sent.
+        case same
+        /// With "••••" where each variable's value is.
+        case masked(Data)
+        /// It has variable values but couldn't be built masked (a variable
+        /// outside a string, e.g. a number): left out of the report.
+        case leftOut
+    }
 
     /// Whether Apply uploads this app's package.
     var uploadsPackage: Bool {
